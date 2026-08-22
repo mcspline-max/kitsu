@@ -198,6 +198,7 @@
                   @remove-extra-preview="onRemoveExtraPreviewClicked"
                   @previews-order-changed="onPreviewsOrderChanged"
                   @frame-updated="onFrameUpdated"
+                  @timecode-updated="onTimecodeUpdated"
                   v-if="currentPreview"
                 />
               </div>
@@ -324,6 +325,8 @@
                 :task-status="taskStatusForCurrentUser"
                 :preview-forms="previewForms"
                 :fps="currentFps"
+                :timecode="currentTimecode"
+                :preview-file-id="currentPreviewId"
                 :revision="currentRevision"
                 @add-comment="addComment"
                 @add-preview="onAddPreviewClicked"
@@ -338,7 +341,7 @@
               />
               <div
                 class="comments"
-                v-if="taskComments && taskComments.length > 0"
+                v-if="visibleTaskComments && visibleTaskComments.length > 0"
               >
                 <XyzTransitionGroup
                   appear
@@ -382,7 +385,7 @@
                     @toggle-for-client="onToggleForClient"
                     @checklist-updated="saveComment"
                     @time-code-clicked="timeCodeClicked"
-                    v-for="(comment, index) in taskComments"
+                    v-for="(comment, index) in visibleTaskComments"
                   />
                 </XyzTransitionGroup>
               </div>
@@ -482,6 +485,7 @@ import {
 import { mapGetters, mapActions } from 'vuex'
 
 import drafts from '@/lib/drafts'
+import { isCommentBoundToOtherPreview } from '@/lib/models'
 import { getTaskEntityPath, getTaskEntitiesPath } from '@/lib/path'
 import { formatRevision } from '@/lib/preview'
 import {
@@ -557,6 +561,7 @@ export default {
       draftComment: {},
       previewForms: [],
       currentFrame: 0,
+      currentTimecode: null,
       isUseCurrentFrame: false,
       currentTask: null,
       hookupPlaylistTaskIds: [],
@@ -736,6 +741,15 @@ export default {
 
     currentPreviewId() {
       return this.currentPreview ? this.currentPreview.id : ''
+    },
+
+    // A comment tied to another revision shouldn't show up while this one
+    // is open — taskComments itself stays the full set for lookups
+    // (edit/delete/ack by id, socket updates, ...).
+    visibleTaskComments() {
+      return this.taskComments.filter(
+        comment => !isCommentBoundToOtherPreview(comment, this.currentPreviewId)
+      )
     },
 
     currentPreview() {
@@ -1218,7 +1232,9 @@ export default {
       taskStatusId,
       revision = undefined,
       link = undefined,
-      forClient = false
+      forClient = false,
+      timecode = null,
+      previewFileId = null
     ) {
       const params = {
         taskId: this.task.id,
@@ -1228,7 +1244,12 @@ export default {
         comment,
         links: link ? [link] : null,
         revision,
-        forClient
+        forClient,
+        // AddComment owns whether the user detached the auto-captured
+        // timecode (its "remove" chip) — trust what it emits, not our own
+        // data property, or a dismissal would get silently overridden here.
+        timecode,
+        previewFileId
       }
       const action =
         this.previewForms.length > 0 ? 'commentTaskWithPreview' : 'commentTask'
@@ -1625,6 +1646,10 @@ export default {
       this.currentFrame = frame
     },
 
+    onTimecodeUpdated(timecode) {
+      this.currentTimecode = timecode
+    },
+
     onPreviewFormRemoved(previewForm) {
       this.previewForms = this.previewForms.filter(f => f !== previewForm)
       this.loadPreviewFileFormData(this.previewForms)
@@ -1656,7 +1681,7 @@ export default {
     },
 
     isStatusChange(index) {
-      const comments = this.taskComments
+      const comments = this.visibleTaskComments
       const comment = comments[index]
       return (
         index === comments.length - 1 ||
@@ -1664,18 +1689,13 @@ export default {
       )
     },
 
-    timeCodeClicked({
-      versionRevision,
-      minutes,
-      seconds,
-      milliseconds,
-      frame
-    }) {
-      this.changeCurrentPreview(
-        this.taskPreviews.find(p => p.revision === parseInt(versionRevision))
-      )
+    timeCodeClicked({ versionRevision, frame }) {
+      if (!Number.isFinite(Number(frame))) return
+      const revision = Number.parseInt(versionRevision, 10)
+      const preview = this.taskPreviews.find(p => p.revision === revision)
+      if (preview) this.changeCurrentPreview(preview)
       setTimeout(() => {
-        this.$refs['preview-player']?.setCurrentFrame(frame)
+        this.$refs['preview-player']?.setCurrentFrame(Number(frame))
         this.$refs['preview-player']?.focus()
       }, 100)
     },

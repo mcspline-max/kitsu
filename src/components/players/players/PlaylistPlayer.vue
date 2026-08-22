@@ -104,311 +104,769 @@
     </div>
 
     <div class="flexrow filler" v-show="!isAddingEntity || isLoading">
-      <div
-        :class="{
-          filler: true,
-          flexrow: true,
-          'video-container': true,
-          'flexrow-reverse': !isComparisonOverlay
-        }"
-        :style="{ cursor: annotationCursor || null }"
-        ref="video-container"
-      >
-        <video
-          ref="full-playlist-player"
-          class="raw-player"
-          :style="{
-            position: isComparisonOverlay ? 'absolute' : 'relative'
+      <div class="video-column filler">
+        <div
+          :class="{
+            filler: true,
+            flexrow: true,
+            'video-container': true,
+            'flexrow-reverse': !isComparisonOverlay
           }"
-          v-show="isFullMode"
-        />
+          :style="{ cursor: annotationCursor || null }"
+          ref="video-container"
+        >
+          <video
+            ref="full-playlist-player"
+            class="raw-player"
+            :style="{
+              position: isComparisonOverlay ? 'absolute' : 'relative'
+            }"
+            v-show="isFullMode"
+          />
 
-        <multi-video-viewer
-          ref="raw-player-comparison"
-          class="raw-player"
-          name="comparison"
-          :style="{
-            position: isComparisonOverlay ? 'absolute' : 'relative'
-          }"
-          :entities="entityListToCompare"
-          :full-screen="fullScreen"
-          :is-hd="isHd"
-          :is-repeating="isRepeating"
-          :muted="true"
-          :next-handle-in="nextEntityHandleIn"
-          :panzoom="true"
+          <multi-video-viewer
+            ref="raw-player-comparison"
+            class="raw-player"
+            name="comparison"
+            :style="{
+              position: isComparisonOverlay ? 'absolute' : 'relative'
+            }"
+            :entities="entityListToCompare"
+            :full-screen="fullScreen"
+            :is-hd="isHd"
+            :is-repeating="isRepeating"
+            :muted="true"
+            :next-handle-in="nextEntityHandleIn"
+            :panzoom="true"
+            :handle-in="
+              ['shot', 'edit', 'episode'].includes(playlist.for_entity)
+                ? handleIn
+                : -1
+            "
+            :handle-out="
+              ['shot', 'edit', 'episode'].includes(playlist.for_entity)
+                ? handleOut
+                : -1
+            "
+            @metadata-loaded="updateComparisonAnchor"
+            @panzoom-ready="onResetZoomClicked"
+            v-show="
+              isComparing &&
+              isCurrentPreviewMovie &&
+              isMovieComparison &&
+              !isFullMode &&
+              !isLoading
+            "
+          />
+
+          <div
+            ref="comparison-content-anchor"
+            class="comparison-content-anchor"
+            v-show="
+              isComparing &&
+              isCurrentPreviewMovie &&
+              isMovieComparison &&
+              !isComparisonOverlay &&
+              !isFullMode &&
+              !isLoading
+            "
+          />
+
+          <div
+            class="annotation-slot comparison-slot"
+            v-if="
+              isComparing &&
+              isCurrentPreviewMovie &&
+              isMovieComparison &&
+              !isComparisonOverlay &&
+              !isFullMode
+            "
+          >
+            <annotation-canvas
+              ref="comparison-annotation-canvas"
+              canvas-id="playlist-annotation-canvas-comparison"
+              :media-element="comparisonContentAnchorEl"
+              :panzoom-transform="panzoomTransform"
+              :interactive="false"
+              :static="true"
+              @resized="onComparisonCanvasResized"
+              v-show="
+                isAnnotationsDisplayed && currentRevisionToCompare && !isLoading
+              "
+            />
+          </div>
+
+          <div
+            class="picture-preview-comparison-wrapper"
+            :style="{
+              position: isComparisonOverlay ? 'absolute' : 'static',
+              left: 0,
+              right: 0
+            }"
+            v-show="
+              isComparing &&
+              !isLoading &&
+              !isCurrentPreviewFile &&
+              ((isCurrentPreviewMovie && !isMovieComparison) ||
+                !isCurrentPreviewMovie)
+            "
+          >
+            <picture-viewer
+              ref="picture-player-comparison"
+              class="picture-preview"
+              :big="true"
+              :default-height="pictureDefaultHeight"
+              :full-screen="fullScreen"
+              :light="false"
+              :margin-bottom="0"
+              :panzoom="true"
+              :preview="currentPreviewToCompare"
+              :is-comparing="isComparing"
+              @panzoom-changed="onComparisonPanZoomChanged"
+              @panzoom-ready="onResetZoomClicked"
+              @loaded="onPictureLoaded"
+              high-quality
+              v-show="isComparing && isPictureComparison"
+            />
+
+            <video
+              ref="picture-video-player-comparison"
+              class="picture-preview"
+              :src="currentComparisonPreviewPath"
+              @panzoom-changed="onComparisonPanZoomChanged"
+              controls
+              loop
+              muted
+              v-if="isComparing && isMovieComparison"
+            />
+            <span
+              class="picture-preview"
+              v-show="isComparing && !isPictureComparison && !isMovieComparison"
+            >
+              It's not a picture preview
+            </span>
+          </div>
+
+          <multi-video-viewer
+            ref="raw-player"
+            class="raw-player"
+            :style="{
+              position: isComparisonOverlay ? 'absolute' : 'relative',
+              opacity: overlayOpacity
+            }"
+            :entities="entityList"
+            :full-screen="fullScreen"
+            :handle-in="handleIn"
+            :handle-out="handleOut"
+            :is-hd="isHd"
+            :is-repeating="isRepeating"
+            :current-preview-index="currentPreviewIndex"
+            :muted="isMuted"
+            :next-handle-in="nextEntityHandleIn"
+            :panzoom="true"
+            @entity-change="onPlayerPlayingEntityChange"
+            @frame-update="onRawPlayerFrameUpdate"
+            @time-update="onRawPlayerTimeUpdate"
+            @max-duration-update="onMaxDurationUpdate"
+            @metadata-loaded="onMetadataLoaded"
+            @panzoom-changed="onPanZoomChanged"
+            @play-next="onPlayNext"
+            @repeat="onVideoRepeated"
+            @video-loaded="onVideoLoaded"
+            v-show="isCurrentPreviewMovie && !isFullMode && !isLoading"
+          />
+
+          <object-viewer
+            ref="object-player"
+            class="object-player"
+            :background-url="backgroundUrl"
+            :full-screen="fullScreen"
+            :is-environment-skybox="isEnvironmentSkybox"
+            :is-wireframe="isWireframe"
+            :preview-url="isCurrentPreviewModel ? currentPreviewDlPath : null"
+            :style="{
+              position: isComparisonOverlay ? 'absolute' : 'static',
+              opacity: overlayOpacity
+            }"
+            @model-loaded="onModelLoaded"
+            v-show="isCurrentPreviewModel && !isLoading"
+          />
+
+          <sound-viewer
+            ref="sound-player"
+            class="sound-player"
+            :file-name="currentPreviewFileName"
+            :preview-url="currentPreviewDlPath"
+            :full-screen="fullScreen"
+            @play-ended="pause"
+            v-if="isCurrentPreviewSound && !isLoading"
+          />
+
+          <pdf-viewer
+            ref="pdf-player"
+            :preview="currentPreview"
+            :default-height="pictureDefaultHeight"
+            v-if="isCurrentPreviewPdf && !isLoading"
+          />
+
+          <markdown-viewer
+            :preview="currentPreview"
+            :default-height="pictureDefaultHeight"
+            v-if="isCurrentPreviewMarkdown && !isLoading"
+          />
+
+          <diff-viewer
+            :preview="currentPreview"
+            :default-height="pictureDefaultHeight"
+            v-if="isCurrentPreviewDiff && !isLoading"
+          />
+
+          <p
+            :style="{ width: '100%' }"
+            class="preview-standard-file has-text-centered"
+            v-show="isCurrentPreviewFile && !isLoading"
+          >
+            <a
+              class="button"
+              ref="preview-file"
+              :href="currentPreviewDlPath"
+              v-if="extension && extension.length > 0"
+            >
+              <download-icon class="icon" />
+              <span class="text">
+                {{ $t('tasks.download_pdf_file', { extension: extension }) }}
+              </span>
+            </a>
+          </p>
+
+          <div
+            class="picture-preview-wrapper flexrow"
+            ref="picture-player-wrapper"
+            :style="{
+              position: isComparisonOverlay ? 'absolute' : 'static',
+              opacity: overlayOpacity,
+              left: 0,
+              right: 0,
+              'z-index': 1
+            }"
+            v-show="isCurrentPreviewPicture && !isLoading"
+          >
+            <multi-picture-viewer
+              ref="picture-player"
+              :default-height="pictureDefaultHeight"
+              :full-screen="fullScreen"
+              :light="false"
+              :margin-bottom="0"
+              :panzoom="true"
+              :current-preview="{
+                ...currentPreview,
+                position: currentPreviewIndex + 1
+              }"
+              :previews="picturePreviews"
+              @loaded="onPictureLoaded"
+              @panzoom-changed="onPanZoomChanged"
+              high-quality
+            />
+          </div>
+
+          <div class="loading-wrapper" v-if="isLoading">
+            <spinner />
+          </div>
+
+          <div
+            ref="main-content-anchor"
+            class="main-content-anchor"
+            v-show="
+              !isCurrentPreviewFile && !isCurrentPreviewModel && !isLoading
+            "
+          />
+
+          <div
+            class="annotation-slot"
+            :class="{ 'side-by-side': isSideBySideComparison }"
+          >
+            <annotation-canvas
+              ref="onion-annotation-canvas"
+              canvas-id="playlist-annotation-canvas-onion"
+              :media-element="mainContentAnchorEl"
+              :panzoom-transform="panzoomTransform"
+              :interactive="false"
+              :static="true"
+              @resized="refreshOnionSkin"
+              v-show="
+                isCurrentPreviewMovie && isAnnotationsDisplayed && isOnionSkinOn
+              "
+            />
+            <annotation-canvas
+              ref="main-annotation-canvas"
+              canvas-id="playlist-annotation-canvas"
+              :cursor="annotationCursor"
+              :media-element="mainContentAnchorEl"
+              :panzoom-transform="panzoomTransform"
+              :interactive="isOverlayInteractive"
+              :wheel-target="mainMediaElement"
+              @resized="onMainCanvasResized"
+              v-show="
+                !isCurrentPreviewFile &&
+                isAnnotationsDisplayed &&
+                !isCurrentPreviewModel
+              "
+            />
+          </div>
+        </div>
+
+        <video-progress
+          ref="video-progress"
+          class="video-progress pull-bottom"
+          :annotations="annotations"
+          :comparison-annotations="comparisonAnnotations"
+          :comment-marks="commentMarks"
+          :empty="!isCurrentPreviewMovie"
+          :frame-duration="frameDuration"
+          :frame-start="frameStart"
+          :is-full-mode="isFullMode"
+          :is-full-screen="fullScreen || isEntitiesHidden"
+          :movie-dimensions="movieDimensions"
+          :nb-frames="
+            isCurrentPreviewMovie
+              ? nbFrames
+              : isCurrentPreviewPicture && currentEntity.preview_nb_frames
+                ? currentEntity.preview_nb_frames
+                : Math.round(2 * fps)
+          "
           :handle-in="
-            ['shot', 'edit', 'episode'].includes(playlist.for_entity)
+            playlist.for_entity === 'shot' && currentPreviewIndex === 0
               ? handleIn
               : -1
           "
           :handle-out="
-            ['shot', 'edit', 'episode'].includes(playlist.for_entity)
+            playlist.for_entity === 'shot' && currentPreviewIndex === 0
               ? handleOut
               : -1
           "
-          @metadata-loaded="updateComparisonAnchor"
-          @panzoom-ready="onResetZoomClicked"
-          v-show="
-            isComparing &&
-            isCurrentPreviewMovie &&
-            isMovieComparison &&
-            !isFullMode &&
-            !isLoading
-          "
+          :preview-id="currentPreview ? currentPreview.id : ''"
+          @start-scrub="onScrubStart"
+          @end-scrub="onScrubEnd"
+          @progress-changed="onProgressChanged"
+          @handle-in-changed="onHandleInChanged"
+          @handle-out-changed="onHandleOutChanged"
+          @comment-mark-clicked="isCommentsHidden = false"
+          v-show="playlist.id && !isAddingEntity"
         />
 
         <div
-          ref="comparison-content-anchor"
-          class="comparison-content-anchor"
-          v-show="
-            isComparing &&
-            isCurrentPreviewMovie &&
-            isMovieComparison &&
-            !isComparisonOverlay &&
-            !isFullMode &&
-            !isLoading
-          "
-        />
-
-        <div
-          class="annotation-slot comparison-slot"
-          v-if="
-            isComparing &&
-            isCurrentPreviewMovie &&
-            isMovieComparison &&
-            !isComparisonOverlay &&
-            !isFullMode
-          "
+          id="sound-container"
+          :style="{
+            height:
+              isWaveformDisplayed && isCurrentPreviewMovie ? '60px' : '0px',
+            width: '100%'
+          }"
+          v-show="isWaveformDisplayed && isCurrentPreviewMovie"
         >
-          <annotation-canvas
-            ref="comparison-annotation-canvas"
-            canvas-id="playlist-annotation-canvas-comparison"
-            :media-element="comparisonContentAnchorEl"
-            :panzoom-transform="panzoomTransform"
-            :interactive="false"
-            :static="true"
-            @resized="onComparisonCanvasResized"
-            v-show="
-              isAnnotationsDisplayed && currentRevisionToCompare && !isLoading
-            "
-          />
+          <div id="waveform"></div>
         </div>
 
         <div
-          class="picture-preview-comparison-wrapper"
-          :style="{
-            position: isComparisonOverlay ? 'absolute' : 'static',
-            left: 0,
-            right: 0
-          }"
-          v-show="
-            isComparing &&
-            !isLoading &&
-            !isCurrentPreviewFile &&
-            ((isCurrentPreviewMovie && !isMovieComparison) ||
-              !isCurrentPreviewMovie)
-          "
+          ref="button-bar"
+          class="playlist-footer flexrow"
+          v-if="playlist.id && !isAddingEntity"
         >
-          <picture-viewer
-            ref="picture-player-comparison"
-            class="picture-preview"
-            :big="true"
-            :default-height="pictureDefaultHeight"
-            :full-screen="fullScreen"
-            :light="false"
-            :margin-bottom="0"
-            :panzoom="true"
-            :preview="currentPreviewToCompare"
-            :is-comparing="isComparing"
-            @panzoom-changed="onComparisonPanZoomChanged"
-            @panzoom-ready="onResetZoomClicked"
-            @loaded="onPictureLoaded"
-            high-quality
-            v-show="isComparing && isPictureComparison"
-          />
-
-          <video
-            ref="picture-video-player-comparison"
-            class="picture-preview"
-            :src="currentComparisonPreviewPath"
-            @panzoom-changed="onComparisonPanZoomChanged"
-            controls
-            loop
-            muted
-            v-if="isComparing && isMovieComparison"
-          />
-          <span
-            class="picture-preview"
-            v-show="isComparing && !isPictureComparison && !isMovieComparison"
-          >
-            It's not a picture preview
-          </span>
-        </div>
-
-        <multi-video-viewer
-          ref="raw-player"
-          class="raw-player"
-          :style="{
-            position: isComparisonOverlay ? 'absolute' : 'relative',
-            opacity: overlayOpacity
-          }"
-          :entities="entityList"
-          :full-screen="fullScreen"
-          :handle-in="handleIn"
-          :handle-out="handleOut"
-          :is-hd="isHd"
-          :is-repeating="isRepeating"
-          :current-preview-index="currentPreviewIndex"
-          :muted="isMuted"
-          :next-handle-in="nextEntityHandleIn"
-          :panzoom="true"
-          @entity-change="onPlayerPlayingEntityChange"
-          @frame-update="onRawPlayerFrameUpdate"
-          @time-update="onRawPlayerTimeUpdate"
-          @max-duration-update="onMaxDurationUpdate"
-          @metadata-loaded="onMetadataLoaded"
-          @panzoom-changed="onPanZoomChanged"
-          @play-next="onPlayNext"
-          @repeat="onVideoRepeated"
-          @video-loaded="onVideoLoaded"
-          v-show="isCurrentPreviewMovie && !isFullMode && !isLoading"
-        />
-
-        <object-viewer
-          ref="object-player"
-          class="object-player"
-          :background-url="backgroundUrl"
-          :full-screen="fullScreen"
-          :is-environment-skybox="isEnvironmentSkybox"
-          :is-wireframe="isWireframe"
-          :preview-url="isCurrentPreviewModel ? currentPreviewDlPath : null"
-          :style="{
-            position: isComparisonOverlay ? 'absolute' : 'static',
-            opacity: overlayOpacity
-          }"
-          @model-loaded="onModelLoaded"
-          v-show="isCurrentPreviewModel && !isLoading"
-        />
-
-        <sound-viewer
-          ref="sound-player"
-          class="sound-player"
-          :file-name="currentPreviewFileName"
-          :preview-url="currentPreviewDlPath"
-          :full-screen="fullScreen"
-          @play-ended="pause"
-          v-if="isCurrentPreviewSound && !isLoading"
-        />
-
-        <pdf-viewer
-          ref="pdf-player"
-          :preview="currentPreview"
-          :default-height="pictureDefaultHeight"
-          v-if="isCurrentPreviewPdf && !isLoading"
-        />
-
-        <markdown-viewer
-          :preview="currentPreview"
-          :default-height="pictureDefaultHeight"
-          v-if="isCurrentPreviewMarkdown && !isLoading"
-        />
-
-        <diff-viewer
-          :preview="currentPreview"
-          :default-height="pictureDefaultHeight"
-          v-if="isCurrentPreviewDiff && !isLoading"
-        />
-
-        <p
-          :style="{ width: '100%' }"
-          class="preview-standard-file has-text-centered"
-          v-show="isCurrentPreviewFile && !isLoading"
-        >
-          <a
-            class="button"
-            ref="preview-file"
-            :href="currentPreviewDlPath"
-            v-if="extension && extension.length > 0"
-          >
-            <download-icon class="icon" />
-            <span class="text">
-              {{ $t('tasks.download_pdf_file', { extension: extension }) }}
+          <div class="flexrow flexrow-item comparison-buttons" v-if="tempMode">
+            <span
+              class="flexrow-item time-indicator"
+              :title="$t('playlists.actions.entity_index')"
+            >
+              {{ entityList.length > 0 ? playingEntityIndex + 1 : 0 }}
             </span>
-          </a>
-        </p>
+            <span class="flexrow-item time-indicator"> / </span>
+            <span
+              class="flexrow-item time-indicator mr1"
+              :title="$t('playlists.actions.entities_number')"
+            >
+              {{ entityList.length }}
+            </span>
 
-        <div
-          class="picture-preview-wrapper flexrow"
-          ref="picture-player-wrapper"
-          :style="{
-            position: isComparisonOverlay ? 'absolute' : 'static',
-            opacity: overlayOpacity,
-            left: 0,
-            right: 0,
-            'z-index': 1
-          }"
-          v-show="isCurrentPreviewPicture && !isLoading"
-        >
-          <multi-picture-viewer
-            ref="picture-player"
-            :default-height="pictureDefaultHeight"
+            <button-simple
+              class="button playlist-button flexrow-item"
+              @click="onPlayPreviousEntityClicked"
+              :title="$t('playlists.actions.previous_shot')"
+              icon="back"
+            />
+            <button-simple
+              class="playlist-button flexrow-item"
+              @click="onPlayNextEntityClicked"
+              :title="$t('playlists.actions.next_shot')"
+              icon="forward"
+            />
+          </div>
+
+          <player-playback-bar
+            :available-3-d-animations="objectModel.availableAnimations"
+            :compact="isFullMode"
+            :current-frame-label="currentFrame"
+            :current-time="currentTime"
+            :frame-start="frameStart"
             :full-screen="fullScreen"
-            :light="false"
-            :margin-bottom="0"
-            :panzoom="true"
-            :current-preview="{
-              ...currentPreview,
-              position: currentPreviewIndex + 1
-            }"
-            :previews="picturePreviews"
-            @loaded="onPictureLoaded"
-            @panzoom-changed="onPanZoomChanged"
-            high-quality
+            :is-3-d-animation="objectModel.isAnimation"
+            :is-3-d-model="isCurrentPreviewModel"
+            :is-movie="isCurrentPreviewMovie"
+            :is-picture="isCurrentPreviewPicture"
+            :is-playing="isPlaying"
+            :is-repeating="isRepeating"
+            :is-sound="isCurrentPreviewSound"
+            :max-duration="maxDuration"
+            :nb-frames="nbFrames"
+            v-model:current-3-d-animation="objectModel.currentAnimation"
+            v-model:is-hd="isHd"
+            v-model:is-muted="isMuted"
+            v-model:is-show-annotations-while-playing="
+              isShowAnnotationsWhilePlaying
+            "
+            v-model:is-waveform-displayed="isWaveformDisplayed"
+            v-model:speed="speed"
+            v-model:volume="volume"
+            @play-pause-clicked="onPlayPauseClicked"
+            @repeat-clicked="onRepeatClicked"
+            @toggle-sound-clicked="onToggleSoundClicked"
+          >
+            <template #extra-controls>
+              <div
+                class="separator"
+                v-if="isCurrentPreviewPicture || currentEntityPreviewLength > 1"
+              ></div>
+
+              <div
+                class="flexrow-item"
+                :title="$t('playlists.actions.frame_number')"
+                v-if="isCurrentPreviewPicture"
+              >
+                {{ (framesSeenOfPicture + '').padStart(2, '0') }} /
+                {{
+                  currentEntity.preview_nb_frames
+                    ? currentEntity.preview_nb_frames
+                    : Math.round(2 * fps)
+                }}
+              </div>
+
+              <div
+                class="flexrow flexrow-item"
+                :class="{ mr0: isCurrentPreviewPicture }"
+                v-if="currentEntityPreviewLength > 1"
+              >
+                <button-simple
+                  class="button playlist-button flexrow-item"
+                  icon="left"
+                  :title="$t('playlists.actions.files_previous')"
+                  :disabled="isPlaying"
+                  @click="onPreviousPreviewClicked"
+                />
+                <span
+                  class="ml05 mr05 nowrap"
+                  :title="$t('playlists.actions.files_position')"
+                >
+                  {{ currentPreviewIndex + 1 }} /
+                  {{ currentEntityPreviewLength }}
+                </span>
+                <button-simple
+                  class="button playlist-button flexrow-item"
+                  icon="right"
+                  :title="$t('playlists.actions.files_next')"
+                  :disabled="isPlaying"
+                  @click="onNextPreviewClicked"
+                />
+                <a
+                  class="button playlist-button flexrow-item"
+                  :href="currentPreviewPath"
+                  :title="$t('playlists.actions.see_original_file')"
+                  target="blank"
+                >
+                  <arrow-up-right-icon class="icon is-small" />
+                </a>
+                <div class="separator" v-if="!isCurrentPreviewPicture"></div>
+              </div>
+
+              <div class="separator" v-if="!isFullMode"></div>
+              <button-simple
+                class="playlist-button flexrow-item"
+                :title="$t('playlists.actions.change_task_type')"
+                icon="check"
+                @click="showTaskTypeModal"
+                v-if="!tempMode && !isFullMode"
+              />
+            </template>
+          </player-playback-bar>
+          <div
+            class="flexrow flexrow-item comparison-buttons"
+            v-if="
+              (isCurrentPreviewMovie || isCurrentPreviewPicture) && !isFullMode
+            "
+          >
+            <player-comparison-bar
+              :comparison-mode-options="comparisonModeOptions"
+              :comparison-preview-index="currentComparisonPreviewIndex"
+              :comparison-preview-length="currentComparisonPreviewLength"
+              :is-comparing="isComparing"
+              :is-comparison-enabled="true"
+              :is-movie="isCurrentPreviewMovie"
+              :is-sound="isCurrentPreviewSound"
+              :preview-file-options="revisionOptions"
+              :task-type-options="taskTypeOptions"
+              v-model:comparison-mode="comparisonMode"
+              v-model:preview-to-compare-id="revisionToCompare"
+              v-model:task-type-id="taskTypeToCompare"
+              @compare-clicked="onCompareClicked"
+              @previous-comparison-clicked="onPreviousComparisonPictureClicked"
+              @next-comparison-clicked="onNextComparisonPictureClicked"
+            >
+              <template #missing>
+                <div
+                  class="flexrow flexrow-item comparison-missing"
+                  v-if="isComparing && comparisonEntityMissing"
+                >
+                  ⚠️ {{ $t('playlists.comparing_missing_plan') }}
+                </div>
+              </template>
+            </player-comparison-bar>
+          </div>
+
+          <span class="filler"></span>
+
+          <template
+            v-if="
+              (isCurrentUserManager || isCurrentUserSupervisor) &&
+              tempMode &&
+              canSave
+            "
+          >
+            <div class="separator"></div>
+            <button-simple
+              @click="$emit('save-clicked')"
+              class="playlist-button flexrow-item"
+              :title="$t('playlists.actions.save_playlist')"
+              icon="save"
+            />
+          </template>
+
+          <player-annotation-bar
+            v-if="!isFullMode"
+            :background-options="backgroundOptions"
+            :full-screen="fullScreen"
+            :is-3-d-model="isCurrentPreviewModel"
+            :is-annotations-displayed="isAnnotationsDisplayed"
+            :is-comments-hidden="isCommentsHidden"
+            :is-concept="false"
+            :is-drawing="isDrawing"
+            :is-movie="isCurrentPreviewMovie"
+            :is-object-background="isObjectBackground"
+            :is-picture="isCurrentPreviewPicture"
+            :is-typing="isTyping"
+            :is-zoom-pan="false"
+            :object-background-url="objectBackgroundUrl"
+            :pencil-color="pencilColor"
+            :pencil-palette="pencilPalette"
+            :pencil-width="pencilWidth"
+            :production-backgrounds="productionBackgrounds"
+            :read-only="readOnly"
+            :show-comments-button="true"
+            :text-color="textColor"
+            v-model:current-background="currentBackground"
+            v-model:current-shape="currentShape"
+            v-model:is-environment-skybox="isEnvironmentSkybox"
+            v-model:is-eraser-mode-on="isEraserModeOn"
+            v-model:is-laser-mode-on="isLaserModeOn"
+            v-model:is-onion-skin-on="isOnionSkinOn"
+            v-model:onion-skin-frames="onionSkinFrames"
+            v-model:is-shape-mode="isShapeMode"
+            v-model:is-wireframe="isWireframe"
+            @annotation-displayed-clicked="
+              isAnnotationsDisplayed = !isAnnotationsDisplayed
+            "
+            @change-pencil-color="onChangePencilColor"
+            @change-pencil-width="onChangePencilWidth"
+            @change-shape="setShapeTool"
+            @change-text-color="onChangeTextColor"
+            @comment-clicked="onCommentClicked"
+            @delete-clicked="onDeleteClicked"
+            @erase-clicked="onEraseClicked"
+            @object-background-selected="onObjectBackgroundSelected"
+            @pencil-annotate-clicked="onAnnotateClicked"
+            @redo="redoLastAction"
+            @shape-mode-clicked="onShapeModeClicked"
+            @type-clicked="onTypeClicked"
+            @undo="undoLastAction"
+            @zoom-pan-clicked="onResetZoomClicked"
+          />
+          <button-simple
+            class="playlist-button flexrow-item"
+            :title="$t('playlists.actions.entity_list')"
+            :active="!isEntitiesHidden"
+            @click="onFilmClicked"
+            icon="film"
+          />
+          <div
+            class="flexrow-item playlist-button"
+            style="position: relative"
+            v-if="!tempMode"
+          >
+            <div
+              :class="{
+                'build-options': true,
+                hidden: isDlButtonsHidden
+              }"
+            >
+              <a class="dl-button zip-button" :href="zipDlPath">
+                {{ $t('playlists.download_zip') }}
+              </a>
+              <a class="dl-button zip-button" :href="csvDlPath">
+                {{ $t('playlists.download_csv') }}
+              </a>
+              <span
+                :class="{
+                  'dl-button': true,
+                  'mp4-button': true,
+                  disabled:
+                    !(isCurrentUserManager || isCurrentUserSupervisor) ||
+                    isJobRunning,
+                  hidden: isDlButtonsHidden
+                }"
+                @click="onBuildClicked"
+              >
+                {{ $t('playlists.build_mp4') }} - concat
+              </span>
+              <span
+                :class="{
+                  'dl-button': true,
+                  'mp4-2-button': true,
+                  disabled:
+                    !(isCurrentUserManager || isCurrentUserSupervisor) ||
+                    isJobRunning,
+                  hidden: isDlButtonsHidden
+                }"
+                @click="onBuildFullClicked"
+              >
+                {{ $t('playlists.build_mp4') }} - full
+              </span>
+            </div>
+            <div
+              :class="{
+                'build-list': true,
+                hidden: isDlButtonsHidden
+              }"
+            >
+              <span
+                v-if="!playlist.build_jobs || playlist.build_jobs.length === 0"
+              >
+                {{ $t('playlists.no_build') }}
+              </span>
+              <div v-else>
+                <div class="build-title">
+                  {{ $t('playlists.available_build') }}
+                </div>
+                <div
+                  class="flexrow"
+                  :key="job.id"
+                  v-for="job in playlist.build_jobs"
+                >
+                  <spinner
+                    class="build-spinner"
+                    v-if="job.status === 'running'"
+                  />
+                  <span v-if="job.status === 'running'">
+                    {{ $t('playlists.building') }}
+                  </span>
+                  <span v-else-if="job.status === 'failed'">
+                    {{ $t('playlists.failed') }}
+                  </span>
+                  <template v-else>
+                    <button
+                      class="job-button mr05"
+                      v-if="!joinedRoom"
+                      @click="playBuild(job)"
+                    >
+                      <play-icon :size="12" />
+                    </button>
+                    <a class="flexrow-item" :href="getBuildPath(job)">
+                      {{ formatDate(job.created_at) }}
+                    </a>
+                  </template>
+                  <span class="filler"></span>
+                  <button class="job-button" @click="onRemoveBuildJob(job)">
+                    x
+                  </button>
+                </div>
+              </div>
+            </div>
+            <button-simple
+              class="playlist-button"
+              :title="$t('playlists.actions.download')"
+              icon="download"
+              @click="toggleDlButtons"
+              v-if="!isCurrentUserArtist"
+            />
+          </div>
+
+          <button-simple
+            class="button playlist-button flexrow-item"
+            :title="$t('playlists.actions.fullscreen')"
+            @click="onFullscreenClicked"
+            icon="maximize"
+            v-if="isFullScreenEnabled"
           />
         </div>
 
-        <div class="loading-wrapper" v-if="isLoading">
-          <spinner />
-        </div>
-
-        <div
-          ref="main-content-anchor"
-          class="main-content-anchor"
-          v-show="!isCurrentPreviewFile && !isCurrentPreviewModel && !isLoading"
+        <playlist-progress
+          ref="playlist-progress"
+          class="video-progress pull-bottom"
+          :entity-list="entityList"
+          :fps="fps"
+          :frame-duration="frameDuration"
+          :is-full-mode="isFullMode"
+          :is-full-screen="fullScreen || isEntitiesHidden"
+          :nb-frames="isCurrentPreviewMovie ? nbFrames : 0"
+          :preview-id="currentPreview ? currentPreview.id : ''"
+          :playlist-duration="playlistDuration"
+          :playlist-progress="playlistProgress"
+          :playlist-shot-position="playlistShotPosition"
+          @start-scrub="onScrubStart"
+          @end-scrub="onScrubEnd"
+          @progress-playlist-changed="onProgressPlaylistChanged"
+          v-show="
+            playlist.id && !isAddingEntity && playlist.auto_advance !== false
+          "
         />
 
         <div
-          class="annotation-slot"
-          :class="{ 'side-by-side': isSideBySideComparison }"
+          :class="{
+            'playlisted-entities': true,
+            flexrow: true,
+            hidden: isEntitiesHidden
+          }"
+          ref="playlisted-entities"
+          @wheel="onEntitiesWheel"
+          v-if="playlist.id"
         >
-          <annotation-canvas
-            ref="onion-annotation-canvas"
-            canvas-id="playlist-annotation-canvas-onion"
-            :media-element="mainContentAnchorEl"
-            :panzoom-transform="panzoomTransform"
-            :interactive="false"
-            :static="true"
-            @resized="refreshOnionSkin"
-            v-show="
-              isCurrentPreviewMovie && isAnnotationsDisplayed && isOnionSkinOn
-            "
-          />
-          <annotation-canvas
-            ref="main-annotation-canvas"
-            canvas-id="playlist-annotation-canvas"
-            :cursor="annotationCursor"
-            :media-element="mainContentAnchorEl"
-            :panzoom-transform="panzoomTransform"
-            :interactive="isOverlayInteractive"
-            :wheel-target="mainMediaElement"
-            @resized="onMainCanvasResized"
-            v-show="
-              !isCurrentPreviewFile &&
-              isAnnotationsDisplayed &&
-              !isCurrentPreviewModel
-            "
-          />
+          <spinner class="spinner" v-if="isLoading" />
+          <template v-else>
+            <div
+              class="flexrow-item has-text-centered playlisted-wrapper"
+              :key="entity.id"
+              v-for="(entity, index) in renderedEntities"
+            >
+              <playlisted-entity
+                :ref="'entity-' + index"
+                :entity="entity"
+                :index="index"
+                :is-playing="playingEntityIndex === index"
+                draggable="true"
+                @dragstart="onEntityDragStart($event, entity)"
+                @entity-to-add="$emit('entity-to-add', $event)"
+                @entity-dropped="onEntityDropped"
+                @play-click="entityListClicked"
+                @preview-changed="onPreviewChanged"
+                @remove-entity="removeEntity"
+              />
+            </div>
+          </template>
         </div>
       </div>
 
@@ -416,6 +874,7 @@
         ref="task-info"
         class="flexrow-item task-info-column"
         :current-frame="taskInfoFrame"
+        :timecode="taskInfoTimecode"
         :current-parent-preview="currentPreview"
         :fps="fps"
         :extendable="false"
@@ -429,447 +888,6 @@
         @time-code-clicked="onTimeCodeClicked"
         v-show="!isCommentsHidden"
       />
-    </div>
-
-    <video-progress
-      ref="video-progress"
-      class="video-progress pull-bottom"
-      :annotations="annotations"
-      :comparison-annotations="comparisonAnnotations"
-      :empty="!isCurrentPreviewMovie"
-      :frame-duration="frameDuration"
-      :frame-start="frameStart"
-      :is-full-mode="isFullMode"
-      :is-full-screen="fullScreen || isEntitiesHidden"
-      :movie-dimensions="movieDimensions"
-      :nb-frames="
-        isCurrentPreviewMovie
-          ? nbFrames
-          : isCurrentPreviewPicture && currentEntity.preview_nb_frames
-            ? currentEntity.preview_nb_frames
-            : Math.round(2 * fps)
-      "
-      :handle-in="
-        playlist.for_entity === 'shot' && currentPreviewIndex === 0
-          ? handleIn
-          : -1
-      "
-      :handle-out="
-        playlist.for_entity === 'shot' && currentPreviewIndex === 0
-          ? handleOut
-          : -1
-      "
-      :preview-id="currentPreview ? currentPreview.id : ''"
-      @start-scrub="onScrubStart"
-      @end-scrub="onScrubEnd"
-      @progress-changed="onProgressChanged"
-      @handle-in-changed="onHandleInChanged"
-      @handle-out-changed="onHandleOutChanged"
-      v-show="playlist.id && !isAddingEntity"
-    />
-
-    <div
-      id="sound-container"
-      :style="{
-        height: isWaveformDisplayed && isCurrentPreviewMovie ? '60px' : '0px',
-        width: '100%'
-      }"
-      v-show="isWaveformDisplayed && isCurrentPreviewMovie"
-    >
-      <div id="waveform"></div>
-    </div>
-
-    <div
-      ref="button-bar"
-      class="playlist-footer flexrow"
-      v-if="playlist.id && !isAddingEntity"
-    >
-      <div class="flexrow flexrow-item comparison-buttons" v-if="tempMode">
-        <span
-          class="flexrow-item time-indicator"
-          :title="$t('playlists.actions.entity_index')"
-        >
-          {{ entityList.length > 0 ? playingEntityIndex + 1 : 0 }}
-        </span>
-        <span class="flexrow-item time-indicator"> / </span>
-        <span
-          class="flexrow-item time-indicator mr1"
-          :title="$t('playlists.actions.entities_number')"
-        >
-          {{ entityList.length }}
-        </span>
-
-        <button-simple
-          class="button playlist-button flexrow-item"
-          @click="onPlayPreviousEntityClicked"
-          :title="$t('playlists.actions.previous_shot')"
-          icon="back"
-        />
-        <button-simple
-          class="playlist-button flexrow-item"
-          @click="onPlayNextEntityClicked"
-          :title="$t('playlists.actions.next_shot')"
-          icon="forward"
-        />
-      </div>
-
-      <player-playback-bar
-        :available-3-d-animations="objectModel.availableAnimations"
-        :compact="isFullMode"
-        :current-frame-label="currentFrame"
-        :current-time="currentTime"
-        :frame-start="frameStart"
-        :full-screen="fullScreen"
-        :is-3-d-animation="objectModel.isAnimation"
-        :is-3-d-model="isCurrentPreviewModel"
-        :is-movie="isCurrentPreviewMovie"
-        :is-picture="isCurrentPreviewPicture"
-        :is-playing="isPlaying"
-        :is-repeating="isRepeating"
-        :is-sound="isCurrentPreviewSound"
-        :max-duration="maxDuration"
-        :nb-frames="nbFrames"
-        v-model:current-3-d-animation="objectModel.currentAnimation"
-        v-model:is-hd="isHd"
-        v-model:is-muted="isMuted"
-        v-model:is-show-annotations-while-playing="
-          isShowAnnotationsWhilePlaying
-        "
-        v-model:is-waveform-displayed="isWaveformDisplayed"
-        v-model:speed="speed"
-        v-model:volume="volume"
-        @play-pause-clicked="onPlayPauseClicked"
-        @repeat-clicked="onRepeatClicked"
-        @toggle-sound-clicked="onToggleSoundClicked"
-      >
-        <template #extra-controls>
-          <div
-            class="separator"
-            v-if="isCurrentPreviewPicture || currentEntityPreviewLength > 1"
-          ></div>
-
-          <div
-            class="flexrow-item"
-            :title="$t('playlists.actions.frame_number')"
-            v-if="isCurrentPreviewPicture"
-          >
-            {{ (framesSeenOfPicture + '').padStart(2, '0') }} /
-            {{
-              currentEntity.preview_nb_frames
-                ? currentEntity.preview_nb_frames
-                : Math.round(2 * fps)
-            }}
-          </div>
-
-          <div
-            class="flexrow flexrow-item"
-            :class="{ mr0: isCurrentPreviewPicture }"
-            v-if="currentEntityPreviewLength > 1"
-          >
-            <button-simple
-              class="button playlist-button flexrow-item"
-              icon="left"
-              :title="$t('playlists.actions.files_previous')"
-              :disabled="isPlaying"
-              @click="onPreviousPreviewClicked"
-            />
-            <span
-              class="ml05 mr05 nowrap"
-              :title="$t('playlists.actions.files_position')"
-            >
-              {{ currentPreviewIndex + 1 }} / {{ currentEntityPreviewLength }}
-            </span>
-            <button-simple
-              class="button playlist-button flexrow-item"
-              icon="right"
-              :title="$t('playlists.actions.files_next')"
-              :disabled="isPlaying"
-              @click="onNextPreviewClicked"
-            />
-            <a
-              class="button playlist-button flexrow-item"
-              :href="currentPreviewPath"
-              :title="$t('playlists.actions.see_original_file')"
-              target="blank"
-            >
-              <arrow-up-right-icon class="icon is-small" />
-            </a>
-            <div class="separator" v-if="!isCurrentPreviewPicture"></div>
-          </div>
-
-          <div class="separator" v-if="!isFullMode"></div>
-          <button-simple
-            class="playlist-button flexrow-item"
-            :title="$t('playlists.actions.change_task_type')"
-            icon="check"
-            @click="showTaskTypeModal"
-            v-if="!tempMode && !isFullMode"
-          />
-        </template>
-      </player-playback-bar>
-      <div
-        class="flexrow flexrow-item comparison-buttons"
-        v-if="(isCurrentPreviewMovie || isCurrentPreviewPicture) && !isFullMode"
-      >
-        <player-comparison-bar
-          :comparison-mode-options="comparisonModeOptions"
-          :comparison-preview-index="currentComparisonPreviewIndex"
-          :comparison-preview-length="currentComparisonPreviewLength"
-          :is-comparing="isComparing"
-          :is-comparison-enabled="true"
-          :is-movie="isCurrentPreviewMovie"
-          :is-sound="isCurrentPreviewSound"
-          :preview-file-options="revisionOptions"
-          :task-type-options="taskTypeOptions"
-          v-model:comparison-mode="comparisonMode"
-          v-model:preview-to-compare-id="revisionToCompare"
-          v-model:task-type-id="taskTypeToCompare"
-          @compare-clicked="onCompareClicked"
-          @previous-comparison-clicked="onPreviousComparisonPictureClicked"
-          @next-comparison-clicked="onNextComparisonPictureClicked"
-        >
-          <template #missing>
-            <div
-              class="flexrow flexrow-item comparison-missing"
-              v-if="isComparing && comparisonEntityMissing"
-            >
-              ⚠️ {{ $t('playlists.comparing_missing_plan') }}
-            </div>
-          </template>
-        </player-comparison-bar>
-      </div>
-
-      <span class="filler"></span>
-
-      <template
-        v-if="
-          (isCurrentUserManager || isCurrentUserSupervisor) &&
-          tempMode &&
-          canSave
-        "
-      >
-        <div class="separator"></div>
-        <button-simple
-          @click="$emit('save-clicked')"
-          class="playlist-button flexrow-item"
-          :title="$t('playlists.actions.save_playlist')"
-          icon="save"
-        />
-      </template>
-
-      <player-annotation-bar
-        v-if="!isFullMode"
-        :background-options="backgroundOptions"
-        :full-screen="fullScreen"
-        :is-3-d-model="isCurrentPreviewModel"
-        :is-annotations-displayed="isAnnotationsDisplayed"
-        :is-comments-hidden="isCommentsHidden"
-        :is-concept="false"
-        :is-drawing="isDrawing"
-        :is-movie="isCurrentPreviewMovie"
-        :is-object-background="isObjectBackground"
-        :is-picture="isCurrentPreviewPicture"
-        :is-typing="isTyping"
-        :is-zoom-pan="false"
-        :object-background-url="objectBackgroundUrl"
-        :pencil-color="pencilColor"
-        :pencil-palette="pencilPalette"
-        :pencil-width="pencilWidth"
-        :production-backgrounds="productionBackgrounds"
-        :read-only="readOnly"
-        :show-comments-button="true"
-        :text-color="textColor"
-        v-model:current-background="currentBackground"
-        v-model:current-shape="currentShape"
-        v-model:is-environment-skybox="isEnvironmentSkybox"
-        v-model:is-eraser-mode-on="isEraserModeOn"
-        v-model:is-laser-mode-on="isLaserModeOn"
-        v-model:is-onion-skin-on="isOnionSkinOn"
-        v-model:onion-skin-frames="onionSkinFrames"
-        v-model:is-shape-mode="isShapeMode"
-        v-model:is-wireframe="isWireframe"
-        @annotation-displayed-clicked="
-          isAnnotationsDisplayed = !isAnnotationsDisplayed
-        "
-        @change-pencil-color="onChangePencilColor"
-        @change-pencil-width="onChangePencilWidth"
-        @change-shape="setShapeTool"
-        @change-text-color="onChangeTextColor"
-        @comment-clicked="onCommentClicked"
-        @delete-clicked="onDeleteClicked"
-        @erase-clicked="onEraseClicked"
-        @object-background-selected="onObjectBackgroundSelected"
-        @pencil-annotate-clicked="onAnnotateClicked"
-        @redo="redoLastAction"
-        @shape-mode-clicked="onShapeModeClicked"
-        @type-clicked="onTypeClicked"
-        @undo="undoLastAction"
-        @zoom-pan-clicked="onResetZoomClicked"
-      />
-      <button-simple
-        class="playlist-button flexrow-item"
-        :title="$t('playlists.actions.entity_list')"
-        :active="!isEntitiesHidden"
-        @click="onFilmClicked"
-        icon="film"
-      />
-      <div
-        class="flexrow-item playlist-button"
-        style="position: relative"
-        v-if="!tempMode"
-      >
-        <div
-          :class="{
-            'build-options': true,
-            hidden: isDlButtonsHidden
-          }"
-        >
-          <a class="dl-button zip-button" :href="zipDlPath">
-            {{ $t('playlists.download_zip') }}
-          </a>
-          <a class="dl-button zip-button" :href="csvDlPath">
-            {{ $t('playlists.download_csv') }}
-          </a>
-          <span
-            :class="{
-              'dl-button': true,
-              'mp4-button': true,
-              disabled:
-                !(isCurrentUserManager || isCurrentUserSupervisor) ||
-                isJobRunning,
-              hidden: isDlButtonsHidden
-            }"
-            @click="onBuildClicked"
-          >
-            {{ $t('playlists.build_mp4') }} - concat
-          </span>
-          <span
-            :class="{
-              'dl-button': true,
-              'mp4-2-button': true,
-              disabled:
-                !(isCurrentUserManager || isCurrentUserSupervisor) ||
-                isJobRunning,
-              hidden: isDlButtonsHidden
-            }"
-            @click="onBuildFullClicked"
-          >
-            {{ $t('playlists.build_mp4') }} - full
-          </span>
-        </div>
-        <div
-          :class="{
-            'build-list': true,
-            hidden: isDlButtonsHidden
-          }"
-        >
-          <span v-if="!playlist.build_jobs || playlist.build_jobs.length === 0">
-            {{ $t('playlists.no_build') }}
-          </span>
-          <div v-else>
-            <div class="build-title">
-              {{ $t('playlists.available_build') }}
-            </div>
-            <div
-              class="flexrow"
-              :key="job.id"
-              v-for="job in playlist.build_jobs"
-            >
-              <spinner class="build-spinner" v-if="job.status === 'running'" />
-              <span v-if="job.status === 'running'">
-                {{ $t('playlists.building') }}
-              </span>
-              <span v-else-if="job.status === 'failed'">
-                {{ $t('playlists.failed') }}
-              </span>
-              <template v-else>
-                <button
-                  class="job-button mr05"
-                  v-if="!joinedRoom"
-                  @click="playBuild(job)"
-                >
-                  <play-icon :size="12" />
-                </button>
-                <a class="flexrow-item" :href="getBuildPath(job)">
-                  {{ formatDate(job.created_at) }}
-                </a>
-              </template>
-              <span class="filler"></span>
-              <button class="job-button" @click="onRemoveBuildJob(job)">
-                x
-              </button>
-            </div>
-          </div>
-        </div>
-        <button-simple
-          class="playlist-button"
-          :title="$t('playlists.actions.download')"
-          icon="download"
-          @click="toggleDlButtons"
-          v-if="!isCurrentUserArtist"
-        />
-      </div>
-
-      <button-simple
-        class="button playlist-button flexrow-item"
-        :title="$t('playlists.actions.fullscreen')"
-        @click="onFullscreenClicked"
-        icon="maximize"
-        v-if="isFullScreenEnabled"
-      />
-    </div>
-
-    <playlist-progress
-      ref="playlist-progress"
-      class="video-progress pull-bottom"
-      :entity-list="entityList"
-      :fps="fps"
-      :frame-duration="frameDuration"
-      :is-full-mode="isFullMode"
-      :is-full-screen="fullScreen || isEntitiesHidden"
-      :nb-frames="isCurrentPreviewMovie ? nbFrames : 0"
-      :preview-id="currentPreview ? currentPreview.id : ''"
-      :playlist-duration="playlistDuration"
-      :playlist-progress="playlistProgress"
-      :playlist-shot-position="playlistShotPosition"
-      @start-scrub="onScrubStart"
-      @end-scrub="onScrubEnd"
-      @progress-playlist-changed="onProgressPlaylistChanged"
-      v-show="playlist.id && !isAddingEntity"
-    />
-
-    <div
-      :class="{
-        'playlisted-entities': true,
-        flexrow: true,
-        hidden: isEntitiesHidden
-      }"
-      ref="playlisted-entities"
-      @wheel="onEntitiesWheel"
-      v-if="playlist.id"
-    >
-      <spinner class="spinner" v-if="isLoading" />
-      <template v-else>
-        <div
-          class="flexrow-item has-text-centered playlisted-wrapper"
-          :key="entity.id"
-          v-for="(entity, index) in renderedEntities"
-        >
-          <playlisted-entity
-            :ref="'entity-' + index"
-            :entity="entity"
-            :index="index"
-            :is-playing="playingEntityIndex === index"
-            draggable="true"
-            @dragstart="onEntityDragStart($event, entity)"
-            @entity-to-add="$emit('entity-to-add', $event)"
-            @entity-dropped="onEntityDropped"
-            @play-click="entityListClicked"
-            @preview-changed="onPreviewChanged"
-            @remove-entity="removeEntity"
-          />
-        </div>
-      </template>
     </div>
 
     <notify-client-modal
@@ -949,6 +967,7 @@ import { usePlaylistComparison } from '@/composables/players/playlistComparison'
 import { usePreviewShortcuts } from '@/composables/players/previewShortcuts'
 import { usePlayerTransport } from '@/composables/players/transport'
 import { usePreviewRoom } from '@/composables/previewRoom'
+import { isCommentBoundToOtherPreview } from '@/lib/models'
 import { isValidRoomId } from '@/lib/players/events'
 import { scrubFrame } from '@/lib/players/scrub'
 import preferences from '@/lib/preferences'
@@ -959,6 +978,7 @@ import {
   isMoviePreview,
   isPicturePreview
 } from '@/lib/preview'
+import stringHelpers from '@/lib/string'
 import { formatDisplayDate, formatTimeOfDay } from '@/lib/time'
 import {
   ceilToFrame,
@@ -966,6 +986,7 @@ import {
   formatFrame,
   formatTime,
   getEntityFrameStart,
+  parseTimeToSeconds,
   roundToFrame
 } from '@/lib/video'
 
@@ -1445,15 +1466,45 @@ const currentFrameMovieOrPicture = computed(() => {
 // during playback, even while hidden (v-show). Freeze the prop while
 // playing or hidden; it refreshes on pause and when the panel opens.
 const taskInfoFrame = ref(-1)
+// Raw seconds, matching the Float column comments.timecode is stored in.
+const taskInfoTimecode = ref(null)
 watch(
   [currentFrame, isPlaying, isCommentsHidden],
   () => {
     if (!isPlaying.value && !isCommentsHidden.value) {
       taskInfoFrame.value = parseInt(currentFrame.value) - 1
+      taskInfoTimecode.value = currentTimeRaw.value
     }
   },
   { immediate: true }
 )
+
+// Pins for the scrubber, one per timed comment on the preview file
+// currently open — a comment made against a different revision doesn't
+// belong on this one's timeline (isCommentBoundToOtherPreview).
+const commentMarks = computed(() => {
+  if (!task.value || !currentPreview.value) return []
+  const comments = store.getters.getTaskComments(task.value.id) || []
+  return comments
+    .filter(
+      comment => !isCommentBoundToOtherPreview(comment, currentPreview.value.id)
+    )
+    .map(comment => {
+      const time = parseTimeToSeconds(comment.timecode, fps.value)
+      if (time === null) return null
+      const person = personMap.value.get(comment.person_id)
+      return {
+        id: comment.id,
+        time,
+        color: person?.color || null,
+        initials: person?.initials || '',
+        authorName: person?.full_name || '',
+        text: comment.text ? stringHelpers.shortenText(comment.text, 140) : '',
+        timeLabel: formatTime(time, fps.value)
+      }
+    })
+    .filter(Boolean)
+})
 
 // Computed — comparison
 
@@ -3274,17 +3325,23 @@ const onFocusToggle = event => {
 }
 
 const onTimeCodeClicked = ({ versionRevision, frame }) => {
-  const previews =
-    currentEntity.value?.preview_files?.[task.value?.task_type_id]
-  if (!previews) return
-  const previewFile = previews.find(
-    p => p.revision === parseInt(versionRevision)
-  )
-  if (!previewFile) return
-  onPreviewChanged({ entity: currentEntity.value, previewFile })
+  if (!Number.isFinite(Number(frame))) return
+  // A plain (non-publish) comment carries no revision info — Comment.vue's
+  // own click handler already falls back the same way — so only switch
+  // preview files when one actually resolves; otherwise just seek within
+  // whatever preview is currently open.
+  const revision = Number.parseInt(versionRevision, 10)
+  if (Number.isFinite(revision)) {
+    const previews =
+      currentEntity.value?.preview_files?.[task.value?.task_type_id]
+    const previewFile = previews?.find(p => p.revision === revision)
+    if (previewFile) {
+      onPreviewChanged({ entity: currentEntity.value, previewFile })
+    }
+  }
   setTimeout(() => {
-    rawPlayer.value.setCurrentFrame(frame)
-    onFrameUpdate(frame)
+    rawPlayer.value.setCurrentFrame(Number(frame))
+    onFrameUpdate(Number(frame))
     syncComparisonPlayer()
     nextTick(() => reloadCurrentAnnotation())
   }, FRAME_DELAY)
@@ -3501,6 +3558,17 @@ const onPlayNextEntityClicked = () => {
 }
 
 const onPlayNext = () => {
+  // Gate moving on to the next *entity* only — sub-previews of the same
+  // entity (handled inside the branches below) aren't the "timeline
+  // effect" auto_advance toggles. Undefined (playlists predating the
+  // field) keeps the pre-existing always-advance behavior.
+  if (
+    props.playlist?.auto_advance === false &&
+    currentPreviewIndex.value >= currentEntityPreviewLength.value - 1
+  ) {
+    pause()
+    return
+  }
   const next = entityList.value[nextEntityIndex.value]
   if (isRepeating.value && isCurrentPreviewMovie.value) {
     rawPlayer.value?.playNext()
@@ -5004,9 +5072,17 @@ const playerProxy = {
 }
 
 .task-info-column {
+  align-self: stretch;
   min-width: 450px;
   max-width: 450px;
   overflow-y: auto;
+}
+
+.video-column {
+  align-self: stretch;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
 }
 
 .icon {

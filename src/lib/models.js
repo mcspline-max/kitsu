@@ -45,6 +45,16 @@ export const setTasksEntityPreview = (tasks, entityId, previewId) => {
   })
 }
 
+// A comment "belongs" to whichever preview file its timecode was captured
+// against (comment.preview_file_id), or — for the older "publish a new
+// revision" comments — the revision it published (comment.previews[0]).
+// A comment with neither is general/untied and stays visible regardless
+// of which preview is currently open.
+export const isCommentBoundToOtherPreview = (comment, previewId) => {
+  const boundId = comment.preview_file_id || comment.previews?.[0]?.id
+  return Boolean(boundId) && boundId !== previewId
+}
+
 export const findModelInList = (items, modelToFind) => {
   return items.find(item => item.id === modelToFind.id)
 }

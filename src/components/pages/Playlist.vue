@@ -1546,7 +1546,8 @@ export default {
         for_client: form.for_client,
         for_entity: form.for_entity,
         is_for_all: form.is_for_all,
-        task_type_id: form.task_type_id
+        task_type_id: form.task_type_id,
+        auto_advance: form.auto_advance
       }
       if (this.isTVShow && this.currentEpisode) {
         newPlaylist.episode_id = this.currentEpisode.id
@@ -1588,7 +1589,8 @@ export default {
             for_client: form.for_client,
             for_entity: form.for_entity,
             name: form.name,
-            task_type_id: form.task_type_id
+            task_type_id: form.task_type_id,
+            auto_advance: form.auto_advance
           }
         })
         this.modals.isEditDisplayed = false

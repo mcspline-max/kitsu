@@ -59,7 +59,9 @@ export default {
       comment: data.comment,
       checklist: data.checklist || [],
       links: data.links,
-      for_client: data.forClient || false
+      for_client: data.forClient || false,
+      timecode: data.timecode,
+      preview_file_id: data.previewFileId
     }
     if (data.attachment?.length) {
       commentData = new FormData()
@@ -70,6 +72,12 @@ export default {
       commentData.set('comment', data.comment)
       commentData.set('checklist', JSON.stringify(data.checklist || []))
       commentData.set('for_client', data.forClient ? 'true' : 'false')
+      if (data.timecode !== undefined && data.timecode !== null) {
+        commentData.set('timecode', data.timecode)
+      }
+      if (data.previewFileId) {
+        commentData.set('preview_file_id', data.previewFileId)
+      }
     }
     return client.ppost(
       `/api/actions/tasks/${data.taskId}/comment`,
@@ -120,7 +128,8 @@ export default {
       text: comment.text,
       task_status_id: comment.task_status_id,
       checklist: comment.checklist,
-      links: comment.links
+      links: comment.links,
+      timecode: comment.timecode
     }
     return client.pput(`/api/data/comments/${comment.id}`, data)
   },

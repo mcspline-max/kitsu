@@ -362,6 +362,10 @@ const actions = {
     return playlistsApi.createShareLink(playlistId, data)
   },
 
+  updatePlaylistShareLink(_, { playlistId, token, data }) {
+    return playlistsApi.updateShareLink(playlistId, token, data)
+  },
+
   revokePlaylistShareLink(_, { playlistId, token }) {
     return playlistsApi.revokeShareLink(playlistId, token)
   },

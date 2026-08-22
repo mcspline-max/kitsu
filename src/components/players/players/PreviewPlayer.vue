@@ -2,144 +2,421 @@
   <div ref="container" class="preview-player dark" tabindex="-1">
     <div class="preview filler">
       <div class="flexrow filler">
-        <div
-          class="preview-container filler"
-          :style="{ cursor: annotationCursor || null }"
-          ref="preview-container"
-        >
+        <div class="video-column filler">
           <div
-            class="annotation-slot"
-            :class="{ 'side-by-side': isSideBySideComparison }"
+            class="preview-container filler"
+            :style="{ cursor: annotationCursor || null }"
+            ref="preview-container"
           >
-            <annotation-canvas
-              ref="onion-annotation-canvas"
-              :canvas-id="`${canvasId}-onion`"
-              :media-element="mainMediaElement"
-              :panzoom-transform="panzoomTransform"
-              :interactive="false"
-              :static="true"
-              v-show="
-                isAnnotationsDisplayed &&
-                isOnionSkinOn &&
-                isMovie &&
-                mainMediaElement
-              "
-              @resized="refreshOnionSkin"
-            />
-            <annotation-canvas
-              ref="main-annotation-canvas"
-              :canvas-id="canvasId"
-              :cursor="annotationCursor"
-              :media-element="mainMediaElement"
-              :panzoom-transform="panzoomTransform"
-              :interactive="isOverlayInteractive"
-              :wheel-target="mainMediaElement"
-              v-show="
-                isAnnotationsDisplayed &&
-                (isMovie || isPicture) &&
-                mainMediaElement
-              "
-              @click="onCanvasClicked"
-              @resized="onMainCanvasResized"
-            />
+            <div
+              class="annotation-slot"
+              :class="{ 'side-by-side': isSideBySideComparison }"
+            >
+              <annotation-canvas
+                ref="onion-annotation-canvas"
+                :canvas-id="`${canvasId}-onion`"
+                :media-element="mainMediaElement"
+                :panzoom-transform="panzoomTransform"
+                :interactive="false"
+                :static="true"
+                v-show="
+                  isAnnotationsDisplayed &&
+                  isOnionSkinOn &&
+                  isMovie &&
+                  mainMediaElement
+                "
+                @resized="refreshOnionSkin"
+              />
+              <annotation-canvas
+                ref="main-annotation-canvas"
+                :canvas-id="canvasId"
+                :cursor="annotationCursor"
+                :media-element="mainMediaElement"
+                :panzoom-transform="panzoomTransform"
+                :interactive="isOverlayInteractive"
+                :wheel-target="mainMediaElement"
+                v-show="
+                  isAnnotationsDisplayed &&
+                  (isMovie || isPicture) &&
+                  mainMediaElement
+                "
+                @click="onCanvasClicked"
+                @resized="onMainCanvasResized"
+              />
+            </div>
+            <div
+              class="annotation-slot comparison-slot"
+              v-if="isSideBySideComparison"
+            >
+              <annotation-canvas
+                ref="comparison-annotation-canvas"
+                :canvas-id="`${canvasId}-comparison`"
+                :media-element="comparisonMediaElement"
+                :panzoom-transform="panzoomTransform"
+                :interactive="false"
+                :static="true"
+                v-show="
+                  isAnnotationsDisplayed &&
+                  previewToCompare &&
+                  (isMovie || isPicture) &&
+                  comparisonMediaElement
+                "
+                @click="onCanvasClicked"
+                @resized="onComparisonCanvasResized"
+              />
+            </div>
+            <div class="viewers">
+              <preview-viewer
+                ref="preview-viewer"
+                class="preview-viewer"
+                :current-frame="currentFrame"
+                :default-height="defaultHeight"
+                :fps="fps"
+                :is-big="big"
+                :is-comparing="isComparing && isComparisonEnabled"
+                :is-comparison-overlay="isComparisonOverlay"
+                :is-environment-skybox="isEnvironmentSkybox"
+                :is-full-screen="fullScreen"
+                :is-hd="isHd"
+                :is-light="light"
+                :is-muted="isMuted"
+                :is-object-background="isObjectBackground"
+                :is-repeating="isRepeating"
+                :is-wireframe="isWireframe"
+                :margin-bottom="marginBottom"
+                name="main"
+                :nb-frames="nbFrames"
+                :object-background-url="objectBackgroundUrl"
+                :preview="currentPreview"
+                :style="{
+                  position: isComparisonOverlay ? 'absolute' : 'static'
+                }"
+                @duration-changed="changeMaxDuration"
+                @frame-update="setVideoFrameContext"
+                @time-update="onVideoTimeUpdate"
+                @model-loaded="onModelLoaded"
+                @panzoom-changed="onPanzoomChanged"
+                @picture-loaded="onPreviewLoaded"
+                @play-ended="pause"
+                @video-end="onVideoEnd"
+                @video-loaded="onPreviewLoaded"
+              />
+
+              <preview-viewer
+                ref="comparison-preview-viewer"
+                class="comparison-preview-viewer"
+                name="comparison-preview-viewer"
+                :current-frame="currentFrame"
+                :default-height="defaultHeight"
+                :fps="fps"
+                :is-big="big"
+                :is-comparing="isComparing && isComparisonEnabled"
+                :is-full-screen="fullScreen"
+                :is-light="light"
+                :is-hd="isHd"
+                :is-muted="true"
+                :is-repeating="isRepeating"
+                :margin-bottom="marginBottom"
+                :preview="comparisonPreview"
+                :style="{
+                  opacity: overlayOpacity
+                }"
+                @panzoom-ready="onComparisonPanzoomReady"
+                @video-loaded="onComparisonVideoLoaded"
+                v-show="
+                  isComparing &&
+                  previewToCompare &&
+                  (isMovie || !isMovieComparison)
+                "
+              />
+
+              <video
+                class="comparison-preview-viewer comparison-video"
+                :src="comparisonMoviePath"
+                :style="{ opacity: overlayOpacity }"
+                controls
+                loop
+                muted
+                v-if="
+                  isComparing &&
+                  previewToCompare &&
+                  !isMovie &&
+                  isMovieComparison
+                "
+              />
+            </div>
           </div>
-          <div
-            class="annotation-slot comparison-slot"
-            v-if="isSideBySideComparison"
-          >
-            <annotation-canvas
-              ref="comparison-annotation-canvas"
-              :canvas-id="`${canvasId}-comparison`"
-              :media-element="comparisonMediaElement"
-              :panzoom-transform="panzoomTransform"
-              :interactive="false"
-              :static="true"
-              v-show="
-                isAnnotationsDisplayed &&
-                previewToCompare &&
-                (isMovie || isPicture) &&
-                comparisonMediaElement
-              "
-              @click="onCanvasClicked"
-              @resized="onComparisonCanvasResized"
-            />
-          </div>
-          <div class="viewers">
-            <preview-viewer
-              ref="preview-viewer"
-              class="preview-viewer"
-              :current-frame="currentFrame"
-              :default-height="defaultHeight"
-              :fps="fps"
-              :is-big="big"
-              :is-comparing="isComparing && isComparisonEnabled"
-              :is-comparison-overlay="isComparisonOverlay"
-              :is-environment-skybox="isEnvironmentSkybox"
+
+          <div class="button-bar" ref="button-bar">
+            <video-progress
+              ref="progress"
+              class="video-progress pull-bottom"
+              :annotations="annotations"
+              :comparison-annotations="comparisonAnnotations"
+              :comment-marks="commentMarks"
+              :frame-duration="frameDuration"
+              :frame-start="frameStart"
               :is-full-screen="fullScreen"
-              :is-hd="isHd"
-              :is-light="light"
-              :is-muted="isMuted"
-              :is-object-background="isObjectBackground"
-              :is-repeating="isRepeating"
-              :is-wireframe="isWireframe"
-              :margin-bottom="marginBottom"
-              name="main"
+              :movie-dimensions="movieDimensions"
               :nb-frames="nbFrames"
-              :object-background-url="objectBackgroundUrl"
-              :preview="currentPreview"
-              :style="{
-                position: isComparisonOverlay ? 'absolute' : 'static'
-              }"
-              @duration-changed="changeMaxDuration"
-              @frame-update="setVideoFrameContext"
-              @time-update="onVideoTimeUpdate"
-              @model-loaded="onModelLoaded"
-              @panzoom-changed="onPanzoomChanged"
-              @picture-loaded="onPreviewLoaded"
-              @play-ended="pause"
-              @video-end="onVideoEnd"
-              @video-loaded="onPreviewLoaded"
+              :width="width"
+              :handle-in="handleIn"
+              :handle-out="handleOut"
+              :preview-id="isMovie && currentPreview ? currentPreview.id : ''"
+              @start-scrub="$refs['button-bar'].classList.add('unselectable')"
+              @end-scrub="$refs['button-bar'].classList.remove('unselectable')"
+              @progress-changed="onProgressChanged"
+              @handle-in-changed="onHandleInChanged"
+              @handle-out-changed="onHandleOutChanged"
+              @comment-mark-clicked="onCommentMarkClicked"
+              v-show="isMovie"
             />
 
-            <preview-viewer
-              ref="comparison-preview-viewer"
-              class="comparison-preview-viewer"
-              name="comparison-preview-viewer"
-              :current-frame="currentFrame"
-              :default-height="defaultHeight"
-              :fps="fps"
-              :is-big="big"
-              :is-comparing="isComparing && isComparisonEnabled"
-              :is-full-screen="fullScreen"
-              :is-light="light"
-              :is-hd="isHd"
-              :is-muted="true"
-              :is-repeating="isRepeating"
-              :margin-bottom="marginBottom"
-              :preview="comparisonPreview"
-              :style="{
-                opacity: overlayOpacity
-              }"
-              @panzoom-ready="onComparisonPanzoomReady"
-              @video-loaded="onComparisonVideoLoaded"
-              v-show="
-                isComparing &&
-                previewToCompare &&
-                (isMovie || !isMovieComparison)
-              "
-            />
+            <div class="buttons flexrow pull-bottom" ref="buttons">
+              <player-playback-bar
+                :available-3-d-animations="available3DAnimations"
+                :current-frame-label="currentFrameLabel"
+                :current-time="currentTime"
+                :frame-start="frameStart"
+                :full-screen="fullScreen"
+                :is-3-d-animation="is3DAnimation"
+                :is-3-d-model="is3DModel"
+                :is-movie="isMovie"
+                :is-playing="isPlaying"
+                :is-repeating="isRepeating"
+                :is-sound="isSound"
+                :light="light"
+                :max-duration="maxDuration"
+                :nb-frames="nbFrames"
+                v-model:current-3-d-animation="current3DAnimation"
+                v-model:is-hd="isHd"
+                v-model:is-muted="isMuted"
+                v-model:speed="speed"
+                v-model:volume="volume"
+                @play-pause-clicked="onPlayPauseClicked"
+                @repeat-clicked="onRepeatClicked"
+                @toggle-sound-clicked="onToggleSoundClicked"
+              />
 
-            <video
-              class="comparison-preview-viewer comparison-video"
-              :src="comparisonMoviePath"
-              :style="{ opacity: overlayOpacity }"
-              controls
-              loop
-              muted
-              v-if="
-                isComparing && previewToCompare && !isMovie && isMovieComparison
-              "
-            />
+              <player-comparison-bar
+                :comparison-mode-options="comparisonModeOptions"
+                :comparison-preview-index="comparisonPreviewIndex"
+                :comparison-preview-length="comparisonPreviewLength"
+                :is-comparing="isComparing"
+                :is-comparison-enabled="isComparisonEnabled"
+                :is-concept="isConcept"
+                :is-movie="isMovie"
+                :is-sound="isSound"
+                :light="light"
+                :preview-file-options="previewFileOptions"
+                :show-panel="fullScreen"
+                :task-type-options="taskTypeOptions"
+                v-model:comparison-mode="comparisonMode"
+                v-model:preview-to-compare-id="previewToCompareId"
+                v-model:task-type-id="taskTypeId"
+                @compare-clicked="onCompareClicked"
+                @next-comparison-clicked="goToNextComparison"
+                @previous-comparison-clicked="goToPreviousComparison"
+              />
+
+              <div class="filler"></div>
+
+              <div class="entity-name mr1" v-if="fullScreen && task">
+                {{ task.entity_name }}
+              </div>
+
+              <div class="separator" v-if="fullScreen"></div>
+
+              <div class="flexrow">
+                <player-annotation-bar
+                  :background-options="backgroundOptions"
+                  :full-screen="fullScreen"
+                  :is-3-d-model="is3DModel"
+                  :is-annotations-displayed="isAnnotationsDisplayed"
+                  :is-comments-hidden="isCommentsHidden"
+                  :is-concept="isConcept"
+                  :is-drawing="isDrawing"
+                  :is-movie="isMovie"
+                  :is-object-background="isObjectBackground"
+                  :is-picture="isPicture"
+                  :is-typing="isTyping"
+                  :is-zoom-pan="false"
+                  :light="light"
+                  :object-background-url="objectBackgroundUrl"
+                  :pencil-color="pencilColor"
+                  :pencil-palette="pencilPalette"
+                  :pencil-width="pencilWidth"
+                  :production-backgrounds="productionBackgrounds"
+                  :read-only="readOnly"
+                  :show-comments-button="showCommentsButton"
+                  :text-color="textColor"
+                  v-model:current-background="currentBackground"
+                  v-model:current-shape="currentShape"
+                  v-model:is-environment-skybox="isEnvironmentSkybox"
+                  v-model:is-eraser-mode-on="isEraserModeOn"
+                  v-model:is-onion-skin-on="isOnionSkinOn"
+                  v-model:onion-skin-frames="onionSkinFrames"
+                  v-model:is-shape-mode="isShapeMode"
+                  v-model:is-wireframe="isWireframe"
+                  @annotation-displayed-clicked="onAnnotationDisplayedClicked"
+                  @change-pencil-color="onChangePencilColor"
+                  @change-pencil-width="onChangePencilWidth"
+                  @change-shape="setShapeTool"
+                  @change-text-color="onChangeTextColor"
+                  @comment-clicked="onCommentClicked"
+                  @delete-clicked="onDeleteClicked"
+                  @erase-clicked="onEraseClicked"
+                  @object-background-selected="onObjectBackgroundSelected"
+                  @pencil-annotate-clicked="onPencilAnnotateClicked"
+                  @redo="redoLastAction"
+                  @shape-mode-clicked="onShapeModeClicked"
+                  @type-clicked="onTypeClicked"
+                  @undo="undoLastAction"
+                  @zoom-pan-clicked="onResetZoomClicked"
+                />
+
+                <div
+                  class="separator"
+                  v-if="!readOnly && fullScreen && isPicture"
+                ></div>
+
+                <a
+                  class="button flexrow-item"
+                  :href="originalPath"
+                  :title="$t('playlists.actions.see_original_file')"
+                  target="blank"
+                  v-if="!readOnly && isPicture"
+                >
+                  <arrow-up-right-icon class="icon is-small" />
+                </a>
+
+                <div
+                  class="separator"
+                  v-if="
+                    !fullScreen ||
+                    (fullScreen &&
+                      (previews.length > 1 || lastPreviewFiles.length > 1))
+                  "
+                ></div>
+
+                <browsing-bar
+                  :allow-extra-preview="allowExtraPreview"
+                  :current-index="currentIndex"
+                  :previews="previews"
+                  :read-only="readOnly"
+                  :light="light"
+                  :full-screen="fullScreen"
+                  :is-assigned="isAssigned"
+                  @add-preview-clicked="$emit('add-extra-preview')"
+                  @next-clicked="onNextClicked"
+                  @previous-clicked="onPreviousClicked"
+                  @remove-preview-clicked="onRemovePreviewClicked"
+                  @current-index-clicked="toggleIsOrdering"
+                  v-if="currentPreview && !isConcept"
+                />
+
+                <div
+                  class="flexrow"
+                  v-if="
+                    fullScreen && !isConcept && lastPreviewFileOptions.length
+                  "
+                >
+                  <combobox-styled
+                    class="preview-combo flexrow-item"
+                    :options="lastPreviewFileOptions"
+                    is-reversed
+                    is-preview
+                    thin
+                    :model-value="currentPreview?.id"
+                    @update:model-value="changeCurrentPreviewFile"
+                  />
+                </div>
+
+                <div
+                  class="separator"
+                  v-if="lastPreviewFiles.length > 1 && fullScreen"
+                ></div>
+
+                <a
+                  class="button flexrow-item"
+                  :href="safeUrl(link)"
+                  :title="$t('playlists.actions.open_link')"
+                  target="_blank"
+                  v-if="!isCurrentUserArtist && link?.length"
+                >
+                  <link-icon class="icon is-small" />
+                </a>
+
+                <a
+                  class="button flexrow-item"
+                  :class="{
+                    'is-disabled': !isReady
+                  }"
+                  :href="originalDlPath"
+                  :title="$t('playlists.actions.download_file')"
+                  v-if="
+                    !isCurrentUserArtist ||
+                    currentProduction?.is_preview_download_allowed
+                  "
+                >
+                  <download-icon class="icon is-small" />
+                </a>
+
+                <button-simple
+                  class="flexrow-item"
+                  :title="$t('playlists.actions.fullscreen')"
+                  icon="maximize"
+                  v-if="isFullScreenEnabled"
+                  @click="onFullscreenClicked"
+                />
+              </div>
+
+              <div
+                class="comparison-dock flexrow"
+                v-if="!fullScreen && isComparing"
+              >
+                <player-comparison-bar
+                  :comparison-mode-options="comparisonModeOptions"
+                  :comparison-preview-index="comparisonPreviewIndex"
+                  :comparison-preview-length="comparisonPreviewLength"
+                  :is-comparing="isComparing"
+                  :is-comparison-enabled="isComparisonEnabled"
+                  :is-concept="isConcept"
+                  :is-movie="isMovie"
+                  :is-sound="isSound"
+                  :light="light"
+                  :preview-file-options="previewFileOptions"
+                  :show-toggle="false"
+                  :task-type-options="taskTypeOptions"
+                  v-model:comparison-mode="comparisonMode"
+                  v-model:preview-to-compare-id="previewToCompareId"
+                  v-model:task-type-id="taskTypeId"
+                  @next-comparison-clicked="goToNextComparison"
+                  @previous-comparison-clicked="goToPreviousComparison"
+                />
+              </div>
+            </div>
+          </div>
+
+          <div
+            class="flexrow revision-previews"
+            ref="revision-previews"
+            @wheel="onSubPreviewsWheel"
+            v-if="isOrdering"
+          >
+            <div
+              class="flexrow-item revision-preview"
+              :key="preview.id"
+              v-for="(preview, index) in previews"
+            >
+              <revision-preview
+                :preview-file="preview"
+                :index="index"
+                :is-selected="currentPreview.id === preview.id"
+                @selected="onRevisionPreviewSelected(index + 1)"
+                @preview-dropped="onRevisionPreviewDropped"
+              />
+            </div>
           </div>
         </div>
 
@@ -147,6 +424,7 @@
           ref="task-info-player"
           class="flexrow-item task-info-column"
           :current-frame="taskInfoFrame"
+          :timecode="taskInfoTimecode"
           :current-parent-preview="currentPreview"
           :entity-type="entityType"
           :extendable="false"
@@ -162,249 +440,6 @@
         />
       </div>
     </div>
-    <div class="button-bar" ref="button-bar">
-      <video-progress
-        ref="progress"
-        class="video-progress pull-bottom"
-        :annotations="annotations"
-        :comparison-annotations="comparisonAnnotations"
-        :frame-duration="frameDuration"
-        :frame-start="frameStart"
-        :is-full-screen="fullScreen"
-        :movie-dimensions="movieDimensions"
-        :nb-frames="nbFrames"
-        :width="width"
-        :handle-in="handleIn"
-        :handle-out="handleOut"
-        :preview-id="isMovie && currentPreview ? currentPreview.id : ''"
-        @start-scrub="$refs['button-bar'].classList.add('unselectable')"
-        @end-scrub="$refs['button-bar'].classList.remove('unselectable')"
-        @progress-changed="onProgressChanged"
-        @handle-in-changed="onHandleInChanged"
-        @handle-out-changed="onHandleOutChanged"
-        v-show="isMovie"
-      />
-
-      <div class="buttons flexrow pull-bottom" ref="buttons">
-        <player-playback-bar
-          :available-3-d-animations="available3DAnimations"
-          :current-frame-label="currentFrameLabel"
-          :current-time="currentTime"
-          :frame-start="frameStart"
-          :full-screen="fullScreen"
-          :is-3-d-animation="is3DAnimation"
-          :is-3-d-model="is3DModel"
-          :is-movie="isMovie"
-          :is-playing="isPlaying"
-          :is-repeating="isRepeating"
-          :is-sound="isSound"
-          :light="light"
-          :max-duration="maxDuration"
-          :nb-frames="nbFrames"
-          v-model:current-3-d-animation="current3DAnimation"
-          v-model:is-hd="isHd"
-          v-model:is-muted="isMuted"
-          v-model:speed="speed"
-          v-model:volume="volume"
-          @play-pause-clicked="onPlayPauseClicked"
-          @repeat-clicked="onRepeatClicked"
-          @toggle-sound-clicked="onToggleSoundClicked"
-        />
-
-        <player-comparison-bar
-          :comparison-mode-options="comparisonModeOptions"
-          :comparison-preview-index="comparisonPreviewIndex"
-          :comparison-preview-length="comparisonPreviewLength"
-          :is-comparing="isComparing"
-          :is-comparison-enabled="isComparisonEnabled"
-          :is-concept="isConcept"
-          :is-movie="isMovie"
-          :is-sound="isSound"
-          :light="light"
-          :preview-file-options="previewFileOptions"
-          :show-panel="fullScreen"
-          :task-type-options="taskTypeOptions"
-          v-model:comparison-mode="comparisonMode"
-          v-model:preview-to-compare-id="previewToCompareId"
-          v-model:task-type-id="taskTypeId"
-          @compare-clicked="onCompareClicked"
-          @next-comparison-clicked="goToNextComparison"
-          @previous-comparison-clicked="goToPreviousComparison"
-        />
-
-        <div class="filler"></div>
-
-        <div class="entity-name mr1" v-if="fullScreen && task">
-          {{ task.entity_name }}
-        </div>
-
-        <div class="separator" v-if="fullScreen"></div>
-
-        <div class="flexrow">
-          <player-annotation-bar
-            :background-options="backgroundOptions"
-            :full-screen="fullScreen"
-            :is-3-d-model="is3DModel"
-            :is-annotations-displayed="isAnnotationsDisplayed"
-            :is-comments-hidden="isCommentsHidden"
-            :is-concept="isConcept"
-            :is-drawing="isDrawing"
-            :is-movie="isMovie"
-            :is-object-background="isObjectBackground"
-            :is-picture="isPicture"
-            :is-typing="isTyping"
-            :is-zoom-pan="false"
-            :light="light"
-            :object-background-url="objectBackgroundUrl"
-            :pencil-color="pencilColor"
-            :pencil-palette="pencilPalette"
-            :pencil-width="pencilWidth"
-            :production-backgrounds="productionBackgrounds"
-            :read-only="readOnly"
-            :show-comments-button="showCommentsButton"
-            :text-color="textColor"
-            v-model:current-background="currentBackground"
-            v-model:current-shape="currentShape"
-            v-model:is-environment-skybox="isEnvironmentSkybox"
-            v-model:is-eraser-mode-on="isEraserModeOn"
-            v-model:is-onion-skin-on="isOnionSkinOn"
-            v-model:onion-skin-frames="onionSkinFrames"
-            v-model:is-shape-mode="isShapeMode"
-            v-model:is-wireframe="isWireframe"
-            @annotation-displayed-clicked="onAnnotationDisplayedClicked"
-            @change-pencil-color="onChangePencilColor"
-            @change-pencil-width="onChangePencilWidth"
-            @change-shape="setShapeTool"
-            @change-text-color="onChangeTextColor"
-            @comment-clicked="onCommentClicked"
-            @delete-clicked="onDeleteClicked"
-            @erase-clicked="onEraseClicked"
-            @object-background-selected="onObjectBackgroundSelected"
-            @pencil-annotate-clicked="onPencilAnnotateClicked"
-            @redo="redoLastAction"
-            @shape-mode-clicked="onShapeModeClicked"
-            @type-clicked="onTypeClicked"
-            @undo="undoLastAction"
-            @zoom-pan-clicked="onResetZoomClicked"
-          />
-
-          <div
-            class="separator"
-            v-if="!readOnly && fullScreen && isPicture"
-          ></div>
-
-          <a
-            class="button flexrow-item"
-            :href="originalPath"
-            :title="$t('playlists.actions.see_original_file')"
-            target="blank"
-            v-if="!readOnly && isPicture"
-          >
-            <arrow-up-right-icon class="icon is-small" />
-          </a>
-
-          <div
-            class="separator"
-            v-if="
-              !fullScreen ||
-              (fullScreen &&
-                (previews.length > 1 || lastPreviewFiles.length > 1))
-            "
-          ></div>
-
-          <browsing-bar
-            :allow-extra-preview="allowExtraPreview"
-            :current-index="currentIndex"
-            :previews="previews"
-            :read-only="readOnly"
-            :light="light"
-            :full-screen="fullScreen"
-            :is-assigned="isAssigned"
-            @add-preview-clicked="$emit('add-extra-preview')"
-            @next-clicked="onNextClicked"
-            @previous-clicked="onPreviousClicked"
-            @remove-preview-clicked="onRemovePreviewClicked"
-            @current-index-clicked="toggleIsOrdering"
-            v-if="currentPreview && !isConcept"
-          />
-
-          <div
-            class="flexrow"
-            v-if="fullScreen && !isConcept && lastPreviewFileOptions.length"
-          >
-            <combobox-styled
-              class="preview-combo flexrow-item"
-              :options="lastPreviewFileOptions"
-              is-reversed
-              is-preview
-              thin
-              :model-value="currentPreview?.id"
-              @update:model-value="changeCurrentPreviewFile"
-            />
-          </div>
-
-          <div
-            class="separator"
-            v-if="lastPreviewFiles.length > 1 && fullScreen"
-          ></div>
-
-          <a
-            class="button flexrow-item"
-            :href="safeUrl(link)"
-            :title="$t('playlists.actions.open_link')"
-            target="_blank"
-            v-if="!isCurrentUserArtist && link?.length"
-          >
-            <link-icon class="icon is-small" />
-          </a>
-
-          <a
-            class="button flexrow-item"
-            :class="{
-              'is-disabled': !isReady
-            }"
-            :href="originalDlPath"
-            :title="$t('playlists.actions.download_file')"
-            v-if="
-              !isCurrentUserArtist ||
-              currentProduction?.is_preview_download_allowed
-            "
-          >
-            <download-icon class="icon is-small" />
-          </a>
-
-          <button-simple
-            class="flexrow-item"
-            :title="$t('playlists.actions.fullscreen')"
-            icon="maximize"
-            v-if="isFullScreenEnabled"
-            @click="onFullscreenClicked"
-          />
-        </div>
-
-        <div class="comparison-dock flexrow" v-if="!fullScreen && isComparing">
-          <player-comparison-bar
-            :comparison-mode-options="comparisonModeOptions"
-            :comparison-preview-index="comparisonPreviewIndex"
-            :comparison-preview-length="comparisonPreviewLength"
-            :is-comparing="isComparing"
-            :is-comparison-enabled="isComparisonEnabled"
-            :is-concept="isConcept"
-            :is-movie="isMovie"
-            :is-sound="isSound"
-            :light="light"
-            :preview-file-options="previewFileOptions"
-            :show-toggle="false"
-            :task-type-options="taskTypeOptions"
-            v-model:comparison-mode="comparisonMode"
-            v-model:preview-to-compare-id="previewToCompareId"
-            v-model:task-type-id="taskTypeId"
-            @next-comparison-clicked="goToNextComparison"
-            @previous-comparison-clicked="goToPreviousComparison"
-          />
-        </div>
-      </div>
-    </div>
 
     <div class="flexrow" v-if="isConcept && conceptLinkedEntities.length">
       <ul class="tags">
@@ -418,27 +453,6 @@
           </router-link>
         </li>
       </ul>
-    </div>
-
-    <div
-      class="flexrow revision-previews"
-      ref="revision-previews"
-      @wheel="onSubPreviewsWheel"
-      v-if="isOrdering"
-    >
-      <div
-        class="flexrow-item revision-preview"
-        :key="preview.id"
-        v-for="(preview, index) in previews"
-      >
-        <revision-preview
-          :preview-file="preview"
-          :index="index"
-          :is-selected="currentPreview.id === preview.id"
-          @selected="onRevisionPreviewSelected(index + 1)"
-          @preview-dropped="onRevisionPreviewDropped"
-        />
-      </div>
     </div>
 
     <!-- used only for picture saving purpose, it is not displayed -->
@@ -471,10 +485,12 @@ import { useOnionSkin } from '@/composables/players/onionSkin'
 import { usePreviewShortcuts } from '@/composables/players/previewShortcuts'
 import { usePlayerTransport } from '@/composables/players/transport'
 import func from '@/lib/func'
+import { isCommentBoundToOtherPreview } from '@/lib/models'
 import { getEntityPath } from '@/lib/path'
 import { mergeAnnotationsByFrame } from '@/lib/players/annotation'
 import localPreferences from '@/lib/preferences'
 import { safeUrl } from '@/lib/render'
+import stringHelpers from '@/lib/string'
 import {
   buildAnnotationSnapshotFilename,
   buildAnnotationSnapshotTitle,
@@ -491,6 +507,7 @@ import {
   formatFrame,
   formatTime,
   getEntityFrameStart,
+  parseTimeToSeconds,
   roundToFrame
 } from '@/lib/video'
 
@@ -589,7 +606,8 @@ const emit = defineEmits([
   'comment-added',
   'frame-updated',
   'previews-order-changed',
-  'remove-extra-preview'
+  'remove-extra-preview',
+  'timecode-updated'
 ])
 
 // State
@@ -777,12 +795,30 @@ const currentFrameLabel = computed(() => {
 // during playback, even while hidden (v-show). Freeze the prop while
 // playing or hidden; it refreshes on pause and when the panel opens.
 const taskInfoFrame = ref(0)
+// Raw seconds, matching the Float column comments.timecode is stored in —
+// not the "HH:MM:SS:FF" display string (currentTime), which the API can't
+// parse as a number.
+const taskInfoTimecode = ref(null)
 watch(
-  [currentFrame, isPlaying, isCommentsHidden],
+  [currentFrame, currentTime, isPlaying, isCommentsHidden],
   () => {
     if (!isPlaying.value && !isCommentsHidden.value) {
       taskInfoFrame.value = currentFrame.value
+      taskInfoTimecode.value = currentTimeRaw.value
     }
+  },
+  { immediate: true }
+)
+
+// Same raw-seconds position, but emitted unconditionally (no dependency on
+// the internal comments panel above being open) so a parent embedding this
+// player directly — TaskInfo.vue standalone, Task.vue's page-level player —
+// can timestamp comments composed in its own UI, not just this player's own
+// pop-out comments panel.
+watch(
+  [currentTimeRaw, isPlaying],
+  () => {
+    if (!isPlaying.value) emit('timecode-updated', currentTimeRaw.value)
   },
   { immediate: true }
 )
@@ -796,6 +832,33 @@ const currentPreview = computed(() => {
     return props.previews[currentIndex.value - 1]
   }
   return {}
+})
+
+// Pins for the scrubber, one per timed comment on the preview file
+// currently open — a comment made against a different revision doesn't
+// belong on this one's timeline (isCommentBoundToOtherPreview).
+const personMap = computed(() => store.getters.personMap)
+const commentMarks = computed(() => {
+  const comments = store.getters.getTaskComments(props.task.id) || []
+  return comments
+    .filter(
+      comment => !isCommentBoundToOtherPreview(comment, currentPreview.value.id)
+    )
+    .map(comment => {
+      const time = parseTimeToSeconds(comment.timecode, fps.value)
+      if (time === null) return null
+      const person = personMap.value.get(comment.person_id)
+      return {
+        id: comment.id,
+        time,
+        color: person?.color || null,
+        initials: person?.initials || '',
+        authorName: person?.full_name || '',
+        text: comment.text ? stringHelpers.shortenText(comment.text, 140) : '',
+        timeLabel: formatTime(time, fps.value)
+      }
+    })
+    .filter(Boolean)
 })
 
 annotation.setCurrentPreviewGetter(() => currentPreview.value)
@@ -1941,6 +2004,21 @@ const { cursor: annotationCursor } = useAnnotationCursor({
   pencilWidth
 })
 
+// Clicking a comment-mark dot on the scrubber used to always reveal the
+// embedded task-info-column, regardless of context. That column is meant
+// as this player's own comments UI for callers with no comments UI of
+// their own (Edit.vue, which opts in via show-comments-button) — callers
+// that already show comments elsewhere on the page (Task.vue's own
+// comments-column, or TaskInfo.vue embedding this player in its own
+// sidebar) never asked for it, so the dot click was popping a redundant,
+// layout-breaking side panel there. showCommentsButton is the same signal
+// already used to decide whether the manual toggle button exists, so reuse
+// it here instead of introducing a second flag with the same meaning.
+const onCommentMarkClicked = () => {
+  if (!props.showCommentsButton) return
+  isCommentsHidden.value = false
+}
+
 const onCommentClicked = () => {
   const height = previewContainer.value.offsetHeight
   isCommentsHidden.value = !isCommentsHidden.value
@@ -2798,10 +2876,16 @@ defineExpose({
 }
 
 .task-info-column {
+  align-self: stretch;
   min-width: 450px;
   max-width: 450px;
   overflow-y: auto;
-  height: 90vh;
+}
+
+.video-column {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
 }
 
 .preview-container {

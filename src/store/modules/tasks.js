@@ -514,7 +514,16 @@ const actions = {
 
   commentTask(
     { commit },
-    { taskId, taskStatusId, comment, attachment, checklist, forClient }
+    {
+      taskId,
+      taskStatusId,
+      comment,
+      attachment,
+      checklist,
+      forClient,
+      timecode,
+      previewFileId
+    }
   ) {
     const data = {
       taskId,
@@ -522,7 +531,9 @@ const actions = {
       comment,
       attachment,
       checklist,
-      forClient
+      forClient,
+      timecode,
+      previewFileId
     }
     return tasksApi.commentTask(data).then(comment => {
       commit(NEW_TASK_COMMENT_END, { comment, taskId })
@@ -541,7 +552,9 @@ const actions = {
       form,
       revision,
       links,
-      forClient
+      forClient,
+      timecode,
+      previewFileId
     }
   ) {
     const data = {
@@ -551,7 +564,9 @@ const actions = {
       attachment,
       checklist,
       links,
-      forClient
+      forClient,
+      timecode,
+      previewFileId
     }
     const previewForms = [...state.previewForms]
     commit(ADD_PREVIEW_START)

@@ -129,6 +129,16 @@
               class="comment-text"
               v-if="comment.text"
             ></p>
+            <button
+              class="timecode-badge tag is-info is-light"
+              type="button"
+              :aria-label="`Seek to ${commentTimecode}`"
+              :title="`Seek to ${commentTimecode}`"
+              @click="onCommentTimecodeClicked"
+              v-if="commentTimecode"
+            >
+              {{ commentTimecode }}
+            </button>
             <checklist
               class="checklist"
               :checklist="checklistItems"
@@ -201,6 +211,22 @@
                   </span>
                   <span class="filler"> </span>
                   <span
+                    class="flexrow-item reply-edit"
+                    :title="$t('main.edit')"
+                    role="button"
+                    tabindex="0"
+                    @click="startEditReply(replyComment)"
+                    @keydown.enter.prevent="startEditReply(replyComment)"
+                    @keydown.space.prevent="startEditReply(replyComment)"
+                    v-if="
+                      sharedToken &&
+                      replyComment.person_id === user?.id &&
+                      editingReplyId !== replyComment.id
+                    "
+                  >
+                    {{ $t('main.edit') }}
+                  </span>
+                  <span
                     class="flexrow-item reply-delete"
                     :title="$t('main.delete')"
                     role="button"
@@ -209,11 +235,36 @@
                     @keydown.enter.prevent="onDeleteReplyClicked(replyComment)"
                     @keydown.space.prevent="onDeleteReplyClicked(replyComment)"
                     v-if="
-                      isCurrentUserAdmin || replyComment.person_id === user.id
+                      isCurrentUserAdmin || replyComment.person_id === user?.id
                     "
                   >
                     x
                   </span>
+                </div>
+                <div
+                  class="reply-edit-form"
+                  v-if="editingReplyId === replyComment.id"
+                >
+                  <textarea
+                    class="reply-edit-input"
+                    @keyup.ctrl.enter="saveEditReply(replyComment)"
+                    v-model="editingReplyText"
+                  />
+                  <div class="flexrow reply-edit-actions">
+                    <span class="filler"></span>
+                    <button-simple
+                      class="reply-edit-cancel"
+                      :text="$t('main.cancel')"
+                      @click="cancelEditReply"
+                    />
+                    <button-simple
+                      class="reply-button"
+                      :text="$t('main.save')"
+                      :is-loading="isEditReplyLoading"
+                      :disabled="!editingReplyText.trim()"
+                      @click="saveEditReply(replyComment)"
+                    />
+                  </div>
                 </div>
                 <p
                   v-html="
@@ -228,6 +279,7 @@
                     )
                   "
                   class="comment-text"
+                  v-else
                 ></p>
 
                 <p>
@@ -289,7 +341,7 @@
                     @update:value="onAtTextChanged"
                   >
                     <template #item="{ item }">
-                      <template v-if="item.isTime"> ⏱️ frame </template>
+                      <template v-if="item.isTime"> frame </template>
                       <template v-else-if="item.isDepartment">
                         <span
                           class="mr05"
@@ -339,7 +391,7 @@
                       v-model="replyText"
                     />
                   </at-ta>
-                  <div class="reply-attachments">
+                  <div class="reply-attachments" v-if="!sharedToken">
                     <div
                       :key="'attachment-' + index"
                       class="attachment-file"
@@ -364,6 +416,7 @@
                       icon="attach"
                       :title="$t('comments.add_attachment')"
                       @click="modals.addAttachment = true"
+                      v-if="!sharedToken"
                     />
                     <span class="filler"></span>
                     <button-simple
@@ -570,7 +623,9 @@ import {
   pluralizeEntityType
 } from '@/lib/path'
 import { renderComment, replaceTimeWithTimecode, safeUrl } from '@/lib/render'
+import playlistsApi from '@/store/api/playlists'
 import { sortByName } from '@/lib/sorting'
+import { formatTime, parseTimeToSeconds } from '@/lib/video'
 import {
   formatDisplayDate,
   formatShortDate,
@@ -605,11 +660,15 @@ const { timezone } = useTime()
 const emit = defineEmits([
   'ack-comment',
   'checklist-updated',
+  'comment-updated',
   'delete-comment',
   'duplicate-comment',
   'edit-comment',
   'move-comment',
   'pin-comment',
+  'reply-added',
+  'reply-deleted',
+  'reply-updated',
   'time-code-clicked',
   'toggle-for-client'
 ])
@@ -620,6 +679,16 @@ const props = defineProps({
     default: () => {}
   },
   urlPrefix: {
+    type: String,
+    default: ''
+  },
+  // Share link token. Presence switches reply/delete-reply from the
+  // studio's JWT-scoped tasksApi.replyToComment to the shared, guest-scoped
+  // API — the two are on entirely different auth paths, so this can't be
+  // inferred from urlPrefix (a URL shape, not a token to send guest_id
+  // requests against) or from isCurrentUserClient (a logged-in studio
+  // client, not a token-authenticated guest).
+  sharedToken: {
     type: String,
     default: ''
   },
@@ -714,6 +783,7 @@ const isCurrentUserManager = computed(() =>
 const personMap = computed(() => store.getters.personMap)
 const taskTypeMap = computed(() => store.getters.taskTypeMap)
 const use12HourClock = computed(() => store.getters.use12HourClock)
+const user = computed(() => store.getters.user)
 
 const attachmentNamePrefix = computed(() =>
   stringHelpers.attachmentNamePrefix(
@@ -736,6 +806,32 @@ const isPreviewBound = computed(() => {
 })
 
 const canMoveComment = computed(() => props.canMove && !isPreviewBound.value)
+
+// comments.timecode is persisted as raw seconds (a Float column); legacy
+// rows may still carry the old "HH:MM:SS:FF" display string, so route both
+// through the same parser and format for display from there.
+const timecodeSeconds = computed(() =>
+  parseTimeToSeconds(
+    props.comment.timecode ?? props.comment.time_code,
+    props.fps
+  )
+)
+
+const commentTimecode = computed(() => {
+  const seconds = timecodeSeconds.value
+  return seconds === null ? null : formatTime(seconds, props.fps)
+})
+
+const onCommentTimecodeClicked = event => {
+  const seconds = timecodeSeconds.value
+  if (seconds === null) return
+  pauseEvent(event)
+  emit('time-code-clicked', {
+    versionRevision:
+      props.comment.revision ?? props.comment.previews?.[0]?.revision,
+    frame: Math.max(0, Math.round(seconds * props.fps))
+  })
+}
 
 const isEmpty = computed(() => {
   return (
@@ -928,7 +1024,19 @@ const onChecklistChanged = () => {
   }
 }
 
+// Shared/guest ack goes through the token-scoped API, same reasoning as
+// onReplyClicked: studio's ack-comment emit expects a Vuex-backed parent
+// (Task.vue), which SharedCommentsPanel isn't.
 const acknowledgeComment = comment => {
+  if (props.sharedToken) {
+    playlistsApi
+      .acknowledgeSharedPlaylistComment(props.sharedToken, comment.id, {
+        guest_id: user.value?.id
+      })
+      .then(updated => emit('comment-updated', updated))
+      .catch(console.error)
+    return
+  }
   emit('ack-comment', comment)
 }
 
@@ -986,19 +1094,34 @@ const onDragleave = event => {
   event.preventDefault()
 }
 
+// Shared/guest replies go through the token-scoped API instead of Vuex's
+// replyToComment (JWT-only, and it mutates props.comment.replies in place
+// — fine for Task.vue's Vuex-backed list, but SharedCommentsPanel keeps
+// its own local `comments` ref, so a mutation here would land on a
+// throwaway normalized copy and vanish next render). The parent owns that
+// merge, same as checklist-updated/edit-comment/etc, so this just emits.
 const onReplyClicked = () => {
   isReplyLoading.value = true
-  store
-    .dispatch('replyToComment', {
-      comment: props.comment,
-      text: replyText.value,
-      attachments: replyAttachments.value
-    })
-    .then(() => {
+  const submit = props.sharedToken
+    ? playlistsApi.postSharedPlaylistCommentReply(
+        props.sharedToken,
+        props.comment.id,
+        { guest_id: user.value?.id, text: replyText.value }
+      )
+    : store.dispatch('replyToComment', {
+        comment: props.comment,
+        text: replyText.value,
+        attachments: replyAttachments.value
+      })
+  submit
+    .then(reply => {
       isReplyLoading.value = false
       replyText.value = ''
       showReply.value = false
       replyAttachments.value = []
+      if (props.sharedToken) {
+        emit('reply-added', { commentId: props.comment.id, reply })
+      }
     })
     .catch(error => {
       console.error(error)
@@ -1007,12 +1130,70 @@ const onReplyClicked = () => {
 }
 
 const onDeleteReplyClicked = reply => {
+  if (props.sharedToken) {
+    playlistsApi
+      .deleteSharedPlaylistCommentReply(
+        props.sharedToken,
+        props.comment.id,
+        reply.id,
+        { guest_id: user.value?.id }
+      )
+      .then(() => {
+        emit('reply-deleted', {
+          commentId: props.comment.id,
+          replyId: reply.id
+        })
+      })
+      .catch(console.error)
+    return
+  }
   store
     .dispatch('deleteReply', { comment: props.comment, reply })
     .then(() => {
       isReplyLoading.value = false
     })
     .catch(console.error)
+}
+
+// Edit-reply is shared-only for now — the studio side has no equivalent
+// endpoint (only reply/delete-reply exist there), so the UI for it (see
+// the reply-edit span in the template) is gated on sharedToken too.
+const editingReplyId = ref(null)
+const editingReplyText = ref('')
+const isEditReplyLoading = ref(false)
+
+const startEditReply = reply => {
+  editingReplyId.value = reply.id
+  editingReplyText.value = reply.text
+}
+
+const cancelEditReply = () => {
+  editingReplyId.value = null
+  editingReplyText.value = ''
+}
+
+const saveEditReply = reply => {
+  if (!editingReplyText.value.trim()) return
+  isEditReplyLoading.value = true
+  playlistsApi
+    .editSharedPlaylistCommentReply(
+      props.sharedToken,
+      props.comment.id,
+      reply.id,
+      { guest_id: user.value?.id, text: editingReplyText.value }
+    )
+    .then(updatedReply => {
+      isEditReplyLoading.value = false
+      emit('reply-updated', {
+        commentId: props.comment.id,
+        reply: updatedReply
+      })
+      cancelEditReply()
+    })
+    .catch(error => {
+      console.error(error)
+      isEditReplyLoading.value = false
+    })
 }
 
 const onAtTextChanged = input => {
@@ -1292,6 +1473,27 @@ article.comment {
   padding: 0;
 }
 
+.timecode-badge {
+  align-items: center;
+  border: 0;
+  border-radius: 4px;
+  cursor: pointer;
+  display: inline-flex;
+  font-size: 0.8em;
+  gap: 0.25em;
+  margin: 0.45em 0 0.15em;
+  padding: 0.25em 0.55em;
+  transition:
+    filter 0.15s ease,
+    transform 0.15s ease;
+
+  &:hover,
+  &:focus-visible {
+    filter: brightness(0.96);
+    transform: translateY(-1px);
+  }
+}
+
 .infos {
   display: flex;
   align-items: center;
@@ -1427,7 +1629,8 @@ textarea.reply {
   }
 
   &:hover {
-    .reply-delete {
+    .reply-delete,
+    .reply-edit {
       opacity: 1;
     }
   }
@@ -1445,6 +1648,35 @@ textarea.reply {
   margin-top: -2px;
   margin-right: 0;
   opacity: 0;
+}
+
+.reply-edit {
+  color: $grey;
+  cursor: pointer;
+  font-size: 0.9em;
+  margin-right: 0.6em;
+  opacity: 0;
+}
+
+.reply-edit-form {
+  margin-top: 0.4em;
+}
+
+.reply-edit-input {
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  color: var(--text-strong);
+  font-family: inherit;
+  font-size: 1em;
+  padding: 0.5em;
+  resize: vertical;
+  width: 100%;
+}
+
+.reply-edit-actions {
+  align-items: center;
+  gap: 0.4em;
+  margin-top: 0.4em;
 }
 
 .preview-link {

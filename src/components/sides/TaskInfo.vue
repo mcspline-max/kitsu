@@ -163,6 +163,7 @@
                     @previews-order-change="onPreviewsOrderChange"
                     @comment-added="onCommentAdded"
                     @frame-updated="onFrameUpdated"
+                    @timecode-updated="onInternalTimecodeUpdated"
                     ref="preview-player"
                   />
                 </template>
@@ -191,6 +192,8 @@
                   :is-error="errors.addComment"
                   :is-max-retakes-error="errors.addCommentMaxRetakes"
                   :fps="currentFps"
+                  :timecode="effectiveTimecode"
+                  :preview-file-id="currentPreviewId"
                   :frame="displayedFrame"
                   :revision="currentRevision"
                   :is-movie="isMoviePreview"
@@ -211,7 +214,9 @@
                 <div
                   class="comments"
                   v-if="
-                    taskComments && taskComments.length > 0 && !loading.task
+                    visibleTaskComments &&
+                    visibleTaskComments.length > 0 &&
+                    !loading.task
                   "
                 >
                   <XyzTransitionGroup
@@ -259,7 +264,7 @@
                       @toggle-for-client="onToggleForClient"
                       @checklist-updated="saveComment"
                       @time-code-clicked="timeCodeClicked"
-                      v-for="(comment, index) in taskComments"
+                      v-for="(comment, index) in visibleTaskComments"
                     />
                   </XyzTransitionGroup>
                 </div>
@@ -403,6 +408,7 @@ import csv from '@/lib/csv'
 import { isSupervisorInDepartments } from '@/lib/descriptors'
 import drafts from '@/lib/drafts'
 import func from '@/lib/func'
+import { isCommentBoundToOtherPreview } from '@/lib/models'
 import {
   getDownloadAttachmentPath,
   getTaskEntityPath,
@@ -447,6 +453,14 @@ const props = defineProps({
   currentFrame: {
     type: Number,
     default: 0
+  },
+  // Current player timecode in seconds, supplied by PreviewPlayer when
+  // THIS panel is nested inside another one (isPreview false — the pop-out
+  // comments panel within the big player). Matches comments.timecode (a
+  // Float column) so it can be sent to the API unchanged.
+  timecode: {
+    type: Number,
+    default: null
   },
   currentParentPreview: {
     type: Object,
@@ -759,7 +773,12 @@ const currentPreviewComment = computed(() =>
   )
 )
 
-const currentPreviewId = computed(() => currentPreview.value?.id ?? null)
+// Same nested-vs-standalone resolution as currentRevision, but the id —
+// comments carry the preview file they were timed against, not a revision
+// number.
+const currentPreviewId = computed(
+  () => props.currentParentPreview?.id || currentPreview.value?.id || null
+)
 
 const canDownloadAnnotations = computed(
   () =>
@@ -796,6 +815,15 @@ const exportActions = computed(() =>
 const currentRevision = computed(
   () =>
     props.currentParentPreview?.revision || currentPreview.value?.revision || 0
+)
+
+// A comment tied to another revision shouldn't show up while this one is
+// open — only the render list is filtered; taskComments itself stays the
+// full set for lookups (edit/delete/ack by id, socket updates, ...).
+const visibleTaskComments = computed(() =>
+  taskComments.value.filter(
+    comment => !isCommentBoundToOtherPreview(comment, currentPreviewId.value)
+  )
 )
 
 const displayedFrame = computed(
@@ -886,7 +914,9 @@ const postComment = (
   taskStatusId,
   revision = undefined,
   link = undefined,
-  forClient = false
+  forClient = false,
+  timecode = null,
+  previewFileId = null
 ) => {
   animOn.value = true
   nextTick(() => {
@@ -898,7 +928,12 @@ const postComment = (
       comment,
       links: link ? [link] : null,
       revision,
-      forClient
+      forClient,
+      // AddComment owns whether the user detached the auto-captured
+      // timecode (its "remove" chip) — trust what it emits, not our own
+      // prop, or a dismissal would get silently overridden here.
+      timecode,
+      previewFileId
     }
     const action =
       previewForms.value.length > 0 ? 'commentTaskWithPreview' : 'commentTask'
@@ -1302,24 +1337,27 @@ const onRemoteAcknowledge = (eventData, type) => {
 }
 
 const isStatusChange = index => {
-  const comment = taskComments.value[index]
+  const comment = visibleTaskComments.value[index]
   return (
-    index === taskComments.value.length - 1 ||
-    comment.task_status_id !== taskComments.value[index + 1].task_status_id
+    index === visibleTaskComments.value.length - 1 ||
+    comment.task_status_id !==
+      visibleTaskComments.value[index + 1].task_status_id
   )
 }
 
 const timeCodeClicked = payload => {
+  if (!payload || !Number.isFinite(Number(payload.frame))) return
   if (!props.isPreview) {
     emit('time-code-clicked', payload)
     return
   }
-  const { versionRevision, frame } = payload
-  changeCurrentPreview(
-    taskPreviews.value.find(p => p.revision === parseInt(versionRevision))
-  )
+  const revision = Number.parseInt(payload.versionRevision, 10)
+  const preview = Number.isFinite(revision)
+    ? taskPreviews.value.find(p => p.revision === revision)
+    : null
+  if (preview) changeCurrentPreview(preview)
   setTimeout(() => {
-    previewPlayerRef.value?.setCurrentFrame(frame)
+    previewPlayerRef.value?.setCurrentFrame(Number(payload.frame))
     previewPlayerRef.value?.focus()
   }, 20)
 }
@@ -1327,6 +1365,17 @@ const timeCodeClicked = payload => {
 const onFrameUpdated = frame => {
   currentFrameRaw.value = frame
 }
+
+// When this panel owns its own preview-player (isPreview, e.g. the Shots
+// page side panel), there's no outer PreviewPlayer to supply the timecode
+// prop — read it directly from that inner player instead.
+const internalTimecode = ref(null)
+const onInternalTimecodeUpdated = value => {
+  internalTimecode.value = value
+}
+const effectiveTimecode = computed(() =>
+  props.isPreview ? internalTimecode.value : props.timecode
+)
 
 const extractAnnotationSnapshots = async (withLabel = false) => {
   const previewPlayer = previewPlayerRef.value || props.player

@@ -99,6 +99,45 @@
         v-for="(annotation, index) in comparisonAnnotations"
       >
       </span>
+
+      <span
+        :key="`comment-${mark.id}`"
+        class="comment-mark"
+        :class="{
+          draggable: mark.editable,
+          dragging: draggingMarkId === mark.id
+        }"
+        :style="{
+          left: getMarkDisplayPosition(mark) + 'px',
+          background: mark.color || undefined
+        }"
+        @mouseenter="onCommentMarkEnter(mark.id)"
+        @mouseleave="onCommentMarkLeave"
+        @mousedown="startCommentMarkDrag($event, mark)"
+        @touchstart="onCommentMarkTouchStart($event, mark)"
+        @touchend="onCommentMarkLeave"
+        @touchcancel="onCommentMarkLeave"
+        @click="emitCommentMarkClicked($event, mark)"
+        v-for="mark in commentMarks"
+      >
+        <span class="comment-mark-initials" v-if="mark.initials">
+          {{ mark.initials }}
+        </span>
+        <span
+          class="comment-mark-tooltip"
+          v-if="hoveredMarkId === mark.id && (mark.authorName || mark.text)"
+        >
+          <span class="comment-mark-tooltip-header">
+            <span class="comment-mark-tooltip-author" v-if="mark.authorName">
+              {{ mark.authorName }}
+            </span>
+            <span class="comment-mark-tooltip-time">{{ mark.timeLabel }}</span>
+          </span>
+          <span class="comment-mark-tooltip-text" v-if="mark.text">
+            {{ mark.text }}
+          </span>
+        </span>
+      </span>
     </div>
 
     <div class="frame-number-rail">
@@ -137,6 +176,10 @@ const props = defineProps({
   backgroundUrl: {
     default: null,
     type: String
+  },
+  commentMarks: {
+    default: () => [],
+    type: Array
   },
   comparisonAnnotations: {
     default: () => [],
@@ -189,6 +232,8 @@ const props = defineProps({
 })
 
 const emit = defineEmits([
+  'comment-mark-clicked',
+  'comment-mark-moved',
   'end-scrub',
   'handle-in-changed',
   'handle-out-changed',
@@ -201,10 +246,18 @@ const handleInDragging = ref(false)
 const handleOutDragging = ref(false)
 const hoverFrame = ref(0)
 const isFrameNumberVisible = ref(false)
+const hoveredMarkId = ref(null)
+const draggingMarkId = ref(null)
+const draggingMarkFrame = ref(0)
 const progress = ref(null)
 const progressDragging = ref(false)
 const tileGeometry = ref(null)
 const width = ref(0)
+
+// Set the moment the mark actually moves, not on mousedown — a plain click
+// (mousedown+mouseup with no movement) must still reach
+// emitCommentMarkClicked instead of being swallowed as a no-op drag.
+let markDragMoved = false
 
 // Mouse scratch state; not reactive — written from event handlers, never read by template
 let currentMouseFrame = {}
@@ -408,6 +461,20 @@ const getAnnotationPosition = annotation => {
   return frameToX(frameNumber)
 }
 
+// getAnnotationPosition returns the frame cell's left edge (annotation
+// marks span the cell, so that's where they start); a comment pin is a
+// single dot, so shift it to the cell's center instead.
+const getCommentMarkPosition = mark =>
+  getAnnotationPosition(mark) + effectiveFrameSize.value / 2
+
+// While a mark is being dragged, render it at the live drag position
+// instead of its (still unchanged) actual time — the source of truth
+// only updates once the parent persists comment-mark-moved on drop.
+const getMarkDisplayPosition = mark =>
+  draggingMarkId.value === mark.id
+    ? frameToX(draggingMarkFrame.value) + effectiveFrameSize.value / 2
+    : getCommentMarkPosition(mark)
+
 // Remember the last frame pushed by the parent so the fill can be
 // recomputed when the zoom window moves.
 let lastProgressFrame = 0
@@ -533,6 +600,74 @@ const emitProgressEvent = (event, annotation) => {
   emit('progress-changed', frameNumber)
 }
 
+const emitCommentMarkClicked = (event, mark) => {
+  // A mark drag ends in a mouseup on the same element, which the browser
+  // also fires as a click — swallow that one click rather than also
+  // jumping/highlighting on top of the just-finished move.
+  if (markDragMoved) {
+    markDragMoved = false
+    return
+  }
+  emitProgressEvent(event, mark)
+  emit('comment-mark-clicked', mark.id)
+}
+
+// Repositioning a mark is opt-in per mark (mark.editable, set by the
+// parent from its own ownership rule — e.g. a guest may only move their
+// own comments) so this stays a no-op everywhere that doesn't wire it up.
+const startCommentMarkDrag = (event, mark) => {
+  if (!mark.editable) {
+    startProgressDrag()
+    return
+  }
+  event.stopPropagation()
+  draggingMarkId.value = mark.id
+  draggingMarkFrame.value = Math.round(mark.time / props.frameDuration)
+  markDragMoved = false
+}
+
+const doCommentMarkDrag = event => {
+  if (!draggingMarkId.value || !width.value || !props.nbFrames) return
+  const { frameNumber } = getMouseFrame(event)
+  if (frameNumber !== draggingMarkFrame.value) markDragMoved = true
+  draggingMarkFrame.value = Math.min(
+    Math.max(frameNumber, 0),
+    props.nbFrames - 1
+  )
+}
+
+const stopCommentMarkDrag = () => {
+  if (!draggingMarkId.value) return
+  const id = draggingMarkId.value
+  const frameNumber = draggingMarkFrame.value
+  draggingMarkId.value = null
+  if (markDragMoved) {
+    emit('comment-mark-moved', {
+      id,
+      time: frameNumber * props.frameDuration
+    })
+  }
+}
+
+const onCommentMarkEnter = markId => {
+  isFrameNumberVisible.value = true
+  hoveredMarkId.value = markId
+}
+
+const onCommentMarkLeave = () => {
+  isFrameNumberVisible.value = false
+  hoveredMarkId.value = null
+}
+
+// A named handler rather than an inline multi-statement string: Vue's
+// template compiler parses an inline handler as a single JS expression,
+// not a statement list, so "a(); b()" (or a bare newline between them)
+// fails to parse — it needs a comma between calls, or a real function.
+const onCommentMarkTouchStart = (event, mark) => {
+  onCommentMarkEnter(mark.id)
+  startCommentMarkDrag(event, mark)
+}
+
 const getFrameBackgroundStyle = frame => {
   if (!frame) return {}
   const previewId = props.previewId
@@ -571,7 +706,12 @@ const domEvents = [
   ['mouseup', stopHandleOutDrag],
   ['mouseleave', stopHandleOutDrag],
   ['touchend', stopHandleOutDrag],
-  ['touchcancel', stopHandleOutDrag]
+  ['touchcancel', stopHandleOutDrag],
+  ['mousemove', doCommentMarkDrag],
+  ['touchmove', doCommentMarkDrag],
+  ['mouseup', stopCommentMarkDrag],
+  ['touchend', stopCommentMarkDrag],
+  ['touchcancel', stopCommentMarkDrag]
 ]
 
 let resizeObserver = null
@@ -638,6 +778,116 @@ defineExpose({ updateProgressBar })
   &.comparison-mark {
     opacity: 0.5;
   }
+}
+
+// Comment pins: a bigger dot, vertically centered in the bar and
+// horizontally centered on the frame cell it marks (drawing annotations
+// still own the full cell width/height beneath them).
+.comment-mark {
+  align-items: center;
+  background: $purple-strong;
+  border: 2px solid rgb(54, 57, 63);
+  border-radius: 50%;
+  cursor: pointer;
+  display: flex;
+  height: 18px;
+  width: 18px;
+  justify-content: center;
+  position: absolute;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  transition: transform 0.1s ease-in-out;
+  z-index: 10;
+
+  &:hover {
+    transform: translate(-50%, -50%) scale(1.3);
+    z-index: 11;
+  }
+
+  &.draggable {
+    cursor: grab;
+  }
+
+  &.dragging {
+    box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.35);
+    cursor: grabbing;
+    transform: translate(-50%, -50%) scale(1.3);
+    transition: none;
+    z-index: 12;
+  }
+}
+
+.comment-mark-initials {
+  color: white;
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1;
+  pointer-events: none;
+  text-shadow: 0 1px 1px rgba(0, 0, 0, 0.45);
+}
+
+// Replaces the native title tooltip: styled, and anchored above the dot
+// (so it never gets clipped by the timeline's own bottom edge) instead of
+// wherever the browser happens to place a title attribute.
+.comment-mark-tooltip {
+  background: rgb(30, 32, 37);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  bottom: calc(100% + 10px);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+  color: white;
+  cursor: default;
+  display: flex;
+  flex-direction: column;
+  font-size: 11px;
+  gap: 0.3em;
+  left: 50%;
+  max-width: 240px;
+  padding: 0.5em 0.7em;
+  pointer-events: none;
+  position: absolute;
+  text-align: left;
+  // The tooltip only renders while its dot is hovered, so .comment-mark's
+  // own hover scale(1.3) is always active alongside it and would inflate
+  // the tooltip too (a transform on an ancestor visually scales its
+  // absolutely-positioned descendants along with it) — counter-scale by
+  // 1/1.3 to cancel that back out to 1:1.
+  transform: translateX(-50%) scale(0.77);
+  white-space: normal;
+  z-index: 20;
+
+  &::after {
+    border: 5px solid transparent;
+    border-top-color: rgb(30, 32, 37);
+    content: '';
+    left: 50%;
+    position: absolute;
+    top: 100%;
+    transform: translateX(-50%);
+  }
+}
+
+.comment-mark-tooltip-header {
+  align-items: baseline;
+  display: flex;
+  gap: 0.5em;
+  justify-content: space-between;
+}
+
+.comment-mark-tooltip-author {
+  font-weight: 600;
+}
+
+.comment-mark-tooltip-time {
+  color: rgba(255, 255, 255, 0.6);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.comment-mark-tooltip-text {
+  color: rgba(255, 255, 255, 0.85);
+  overflow-wrap: break-word;
 }
 
 .timeline-minimap {

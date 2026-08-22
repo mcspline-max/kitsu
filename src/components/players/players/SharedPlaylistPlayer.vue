@@ -1,7 +1,10 @@
 <template>
   <div class="shared-player playlist-player" ref="container">
     <shared-playlist-header
+      :available-revisions="availableRevisions"
+      :can-select-revision="canSelectRevision"
       :current-entity-display-name="currentEntityDisplayName"
+      :current-preview-id="currentPreview?.id || ''"
       :entity-count="entityList.length"
       :guest-display-name="guestDisplayName"
       :guest-id="guestId"
@@ -11,120 +14,227 @@
       @logout="emit('logout')"
       @next-entity="nextEntity"
       @previous-entity="previousEntity"
+      @revision-selected="onRevisionSelected"
     />
 
     <div class="player-row">
-      <div class="player-area">
-        <div class="video-container" ref="videoContainer" @contextmenu.prevent>
-          <multi-video-viewer
-            ref="rawPlayer"
-            class="raw-player"
-            :entities="entityList"
-            :current-preview-index="currentPreviewIndex"
-            :is-hd="isHd"
-            :is-repeating="isRepeating"
-            :muted="isMuted"
-            :panzoom="true"
-            :url-prefix="sharedApiPrefix"
-            @entity-change="onEntityChange"
-            @frame-update="onFrameUpdate"
-            @max-duration-update="onMaxDurationUpdate"
-            @panzoom-changed="onPanzoomChanged"
-            @panzoom-ready="onPanzoomReady"
-            @play-next="onPlayNext"
-            @video-loaded="onVideoLoaded"
-            v-show="isMovie && !loading"
-          />
-
-          <picture-viewer
-            ref="picturePlayer"
-            :big="true"
-            :default-height="pictureHeight"
-            :full-screen="false"
-            :light="false"
-            :margin-bottom="0"
-            :panzoom="true"
-            :preview="currentPreview"
-            :url-prefix="sharedApiPrefix"
-            high-quality
-            @panzoom-changed="onPanzoomChanged"
-            v-show="isPicture && !loading"
-          />
-
-          <sound-viewer
-            ref="soundPlayer"
-            :preview-url="downloadUrl"
-            @play-ended="pause"
-            v-if="isSound && !loading"
-          />
-
-          <object-viewer :preview-url="modelUrl" v-if="isModel && !loading" />
-
-          <pdf-viewer
-            :default-height="0"
-            :preview="currentPreview"
-            :url-prefix="sharedApiPrefix"
-            v-if="isPdf && !loading"
-          />
-
-          <markdown-viewer
-            :default-height="0"
-            :preview="currentPreview"
-            :url-prefix="sharedApiPrefix"
-            v-if="isMarkdown && !loading"
-          />
-
-          <diff-viewer
-            :default-height="0"
-            :preview="currentPreview"
-            :url-prefix="sharedApiPrefix"
-            v-if="isDiff && !loading"
-          />
-
+      <div class="video-column">
+        <div class="player-area">
           <div
-            class="other-file"
-            v-if="isOtherFile && !loading && currentPreview"
+            class="video-container"
+            ref="videoContainer"
+            @contextmenu.prevent
           >
-            <a
-              class="other-file-link"
-              :href="downloadUrl"
-              :download="downloadFileName"
-              target="_blank"
-              rel="noopener"
+            <multi-video-viewer
+              ref="rawPlayer"
+              class="raw-player"
+              :entities="entityList"
+              :current-preview-index="currentPreviewIndex"
+              :is-hd="isHd"
+              :is-repeating="isRepeating"
+              :muted="isMuted"
+              :panzoom="true"
+              :url-prefix="sharedApiPrefix"
+              @entity-change="onEntityChange"
+              @frame-update="onFrameUpdate"
+              @max-duration-update="onMaxDurationUpdate"
+              @panzoom-changed="onPanzoomChanged"
+              @panzoom-ready="onPanzoomReady"
+              @play-next="onPlayNext"
+              @video-loaded="onVideoLoaded"
+              v-show="isMovie && !loading"
+            />
+
+            <picture-viewer
+              ref="picturePlayer"
+              :big="true"
+              :default-height="pictureHeight"
+              :full-screen="false"
+              :light="false"
+              :margin-bottom="0"
+              :panzoom="true"
+              :preview="currentPreview"
+              :url-prefix="sharedApiPrefix"
+              high-quality
+              @panzoom-changed="onPanzoomChanged"
+              v-show="isPicture && !loading"
+            />
+
+            <sound-viewer
+              ref="soundPlayer"
+              :preview-url="downloadUrl"
+              @play-ended="pause"
+              v-if="isSound && !loading"
+            />
+
+            <object-viewer :preview-url="modelUrl" v-if="isModel && !loading" />
+
+            <pdf-viewer
+              :default-height="0"
+              :preview="currentPreview"
+              :url-prefix="sharedApiPrefix"
+              v-if="isPdf && !loading"
+            />
+
+            <markdown-viewer
+              :default-height="0"
+              :preview="currentPreview"
+              :url-prefix="sharedApiPrefix"
+              v-if="isMarkdown && !loading"
+            />
+
+            <diff-viewer
+              :default-height="0"
+              :preview="currentPreview"
+              :url-prefix="sharedApiPrefix"
+              v-if="isDiff && !loading"
+            />
+
+            <div
+              class="other-file"
+              v-if="isOtherFile && !loading && currentPreview"
             >
-              <download-icon class="icon" :size="20" />
-              <span>{{ $t('share.download_preview') }}</span>
-              <span class="other-file-extension">.{{ extension }}</span>
-            </a>
+              <a
+                class="other-file-link"
+                :href="downloadUrl"
+                :download="downloadFileName"
+                target="_blank"
+                rel="noopener"
+              >
+                <download-icon class="icon" :size="20" />
+                <span>{{ $t('share.download_preview') }}</span>
+                <span class="other-file-extension">.{{ extension }}</span>
+              </a>
+            </div>
+
+            <shared-annotation-overlay
+              ref="annotationOverlay"
+              :annotations="currentAnnotations"
+              :current-frame="currentFrameNumber"
+              :frame-duration="frameDuration"
+              :guest-id="guestId"
+              :is-editable="canComment && !!guestId && isAnnotating"
+              :is-picture="isPicture"
+              :is-playing="isPlaying"
+              :movie-dimensions="overlayDimensions"
+              :panzoom-transform="panzoomTransform"
+              :preview-file-id="currentPreview?.id || ''"
+              :token="token"
+              @saved="onAnnotationsSaved"
+              v-if="(isMovie || isPicture) && !loading && currentPreview"
+            />
+
+            <div class="loading-background" v-if="loading">
+              <spinner />
+            </div>
+
+            <p
+              class="has-text-centered mt2 no-preview"
+              v-if="!loading && !currentPreview"
+            >
+              {{ $t('share.no_preview') }}
+            </p>
           </div>
+        </div>
 
-          <shared-annotation-overlay
-            ref="annotationOverlay"
-            :annotations="currentAnnotations"
-            :current-frame="currentFrameNumber"
-            :frame-duration="frameDuration"
-            :guest-id="guestId"
-            :is-editable="canComment && !!guestId && isAnnotating"
-            :is-picture="isPicture"
-            :is-playing="isPlaying"
-            :movie-dimensions="overlayDimensions"
-            :panzoom-transform="panzoomTransform"
-            :preview-file-id="currentPreview?.id || ''"
-            :token="token"
-            @saved="onAnnotationsSaved"
-            v-if="(isMovie || isPicture) && !loading && currentPreview"
-          />
+        <video-progress
+          ref="videoProgressRef"
+          class="video-progress pull-bottom"
+          :annotations="currentAnnotations"
+          :comment-marks="commentMarks"
+          :background-url="darkTimesliderUrl"
+          :empty="!isMovie"
+          :frame-duration="frameDuration"
+          :is-full-mode="false"
+          :is-full-screen="false"
+          :movie-dimensions="movieDimensions"
+          :nb-frames="nbFrames"
+          :handle-in="-1"
+          :handle-out="-1"
+          :preview-id="currentPreview ? currentPreview.id : ''"
+          :url-prefix="sharedApiPrefix"
+          @progress-changed="onProgressChanged"
+          @comment-mark-clicked="onCommentMarkClicked"
+          @comment-mark-moved="onCommentMarkMoved"
+          v-show="!!currentPreview"
+        />
 
-          <div class="loading-background" v-if="loading">
-            <spinner />
-          </div>
+        <shared-playlist-button-bar
+          :can-comment="canComment"
+          :current-frame-display="currentFrameDisplay"
+          :current-preview-index="currentPreviewIndex"
+          :current-time-formatted="currentTimeFormatted"
+          :entity-preview-length="currentEntityPreviewLength"
+          :guest-id="guestId"
+          :is-full-screen="isFullScreen"
+          :is-movie="isMovie"
+          :is-picture="isPicture"
+          :is-playing="isPlaying"
+          :is-sound="isSound"
+          :max-duration-formatted="maxDurationFormatted"
+          :nb-frames-display="nbFramesDisplay"
+          :token="token"
+          v-model:is-annotating="isAnnotating"
+          v-model:is-comments-hidden="isCommentsHidden"
+          v-model:is-entities-hidden="isEntitiesHidden"
+          v-model:is-hd="isHd"
+          v-model:is-muted="isMuted"
+          v-model:is-repeating="isRepeating"
+          v-model:volume="volume"
+          @next-preview="onNextPreviewClicked"
+          @pause="pause"
+          @play="play"
+          @previous-preview="onPreviousPreviewClicked"
+          @reset-zoom="onResetZoom"
+          @toggle-full-screen="toggleFullScreen"
+          @toggle-sound="onToggleSoundClicked"
+        />
 
-          <p
-            class="has-text-centered mt2 no-preview"
-            v-if="!loading && !currentPreview"
+        <playlist-progress
+          :entity-list="entityListForProgress"
+          :fps="fps"
+          :frame-duration="frameDuration"
+          :is-full-mode="false"
+          :is-full-screen="false"
+          :movie-dimensions="movieDimensions"
+          :nb-frames="nbFrames"
+          :preview-id="currentPreview ? currentPreview.id : ''"
+          :playlist-duration="playlistDuration"
+          :playlist-progress="currentPlaylistProgress"
+          :playlist-shot-position="playlistShotPosition"
+          :url-prefix="sharedApiPrefix"
+          @progress-playlist-changed="onProgressPlaylistChanged"
+          v-if="
+            entityList.length > 1 &&
+            playlistDuration > 0 &&
+            playlist?.auto_advance !== false
+          "
+        />
+
+        <div
+          :class="{
+            'playlisted-entities': true,
+            flexrow: true,
+            hidden: isEntitiesHidden
+          }"
+          ref="playlistedEntities"
+          @wheel="onEntitiesWheel"
+        >
+          <div
+            class="flexrow-item has-text-centered playlisted-wrapper"
+            :data-entity-index="index"
+            :key="entity.id || index"
+            v-for="(entity, index) in entityList"
           >
-            {{ $t('share.no_preview') }}
-          </p>
+            <playlisted-entity
+              :entity="entity"
+              :index="index"
+              :is-playing="playingEntityIndex === index"
+              :read-only="true"
+              :url-prefix="sharedApiPrefix"
+              @play-click="selectEntity"
+            />
+          </div>
         </div>
       </div>
 
@@ -134,104 +244,17 @@
         :current-task-id="currentTaskId"
         :can-comment="canComment"
         :current-frame="currentFrameNumber"
+        :current-timecode="currentTimecode"
+        :current-preview-id="currentPreview?.id"
         :entity="currentEntity || {}"
+        :highlight-comment-id="highlightedCommentId"
+        :moved-comment="movedComment"
+        :annotation-marks="annotationMarks"
         @status-changed="onStatusChanged"
         @time-code-clicked="onTimeCodeClicked"
+        @comments-changed="onGuestCommentsChanged"
         v-if="!isCommentsHidden && token"
       />
-    </div>
-
-    <video-progress
-      ref="videoProgressRef"
-      class="video-progress pull-bottom"
-      :annotations="currentAnnotations"
-      :background-url="darkTimesliderUrl"
-      :empty="!isMovie"
-      :frame-duration="frameDuration"
-      :is-full-mode="false"
-      :is-full-screen="false"
-      :movie-dimensions="movieDimensions"
-      :nb-frames="nbFrames"
-      :handle-in="-1"
-      :handle-out="-1"
-      :preview-id="currentPreview ? currentPreview.id : ''"
-      :url-prefix="sharedApiPrefix"
-      @progress-changed="onProgressChanged"
-      v-show="!!currentPreview"
-    />
-
-    <shared-playlist-button-bar
-      :can-comment="canComment"
-      :current-frame-display="currentFrameDisplay"
-      :current-preview-index="currentPreviewIndex"
-      :current-time-formatted="currentTimeFormatted"
-      :entity-preview-length="currentEntityPreviewLength"
-      :guest-id="guestId"
-      :is-full-screen="isFullScreen"
-      :is-movie="isMovie"
-      :is-picture="isPicture"
-      :is-playing="isPlaying"
-      :is-sound="isSound"
-      :max-duration-formatted="maxDurationFormatted"
-      :nb-frames-display="nbFramesDisplay"
-      :token="token"
-      v-model:is-annotating="isAnnotating"
-      v-model:is-comments-hidden="isCommentsHidden"
-      v-model:is-entities-hidden="isEntitiesHidden"
-      v-model:is-hd="isHd"
-      v-model:is-muted="isMuted"
-      v-model:is-repeating="isRepeating"
-      v-model:volume="volume"
-      @next-preview="onNextPreviewClicked"
-      @pause="pause"
-      @play="play"
-      @previous-preview="onPreviousPreviewClicked"
-      @reset-zoom="onResetZoom"
-      @toggle-full-screen="toggleFullScreen"
-      @toggle-sound="onToggleSoundClicked"
-    />
-
-    <playlist-progress
-      :entity-list="entityListForProgress"
-      :fps="fps"
-      :frame-duration="frameDuration"
-      :is-full-mode="false"
-      :is-full-screen="false"
-      :movie-dimensions="movieDimensions"
-      :nb-frames="nbFrames"
-      :preview-id="currentPreview ? currentPreview.id : ''"
-      :playlist-duration="playlistDuration"
-      :playlist-progress="currentPlaylistProgress"
-      :playlist-shot-position="playlistShotPosition"
-      :url-prefix="sharedApiPrefix"
-      @progress-playlist-changed="onProgressPlaylistChanged"
-      v-if="entityList.length > 1 && playlistDuration > 0"
-    />
-
-    <div
-      :class="{
-        'playlisted-entities': true,
-        flexrow: true,
-        hidden: isEntitiesHidden
-      }"
-      ref="playlistedEntities"
-      @wheel="onEntitiesWheel"
-    >
-      <div
-        class="flexrow-item has-text-centered playlisted-wrapper"
-        :data-entity-index="index"
-        :key="entity.id || index"
-        v-for="(entity, index) in entityList"
-      >
-        <playlisted-entity
-          :entity="entity"
-          :index="index"
-          :is-playing="playingEntityIndex === index"
-          :read-only="true"
-          :url-prefix="sharedApiPrefix"
-          @play-click="selectEntity"
-        />
-      </div>
     </div>
   </div>
 </template>
@@ -257,8 +280,16 @@ import {
   undoRedoCommand
 } from '@/composables/players/previewShortcuts'
 import { usePlayerTransport } from '@/composables/players/transport'
+import { isCommentBoundToOtherPreview } from '@/lib/models'
 import { mergeAnnotationsByFrame } from '@/lib/players/annotation'
-import { DEFAULT_FPS, floorToFrame, formatTime } from '@/lib/video'
+import stringHelpers from '@/lib/string'
+import {
+  DEFAULT_FPS,
+  floorToFrame,
+  formatTime,
+  parseTimeToSeconds
+} from '@/lib/video'
+import playlistsApi from '@/store/api/playlists'
 
 import SharedAnnotationOverlay from '@/components/players/annotations/SharedAnnotationOverlay.vue'
 import SharedPlaylistButtonBar from '@/components/players/bars/SharedPlaylistButtonBar.vue'
@@ -304,6 +335,10 @@ const videoContainer = ref(null)
 // fixed height left the image small and pushed annotations below it.
 const pictureHeight = ref(600)
 const currentFrameNumber = ref(0)
+// Raw seconds, frozen while playing — matches the studio player's
+// taskInfoTimecode so the compose badge doesn't tick 60x/sec while a guest
+// is typing, and comments.timecode (a Float column) gets a plain number.
+const currentTimecode = ref(null)
 const currentPlaylistProgress = ref(0)
 const currentPreviewIndex = ref(0)
 const isAnnotating = ref(false)
@@ -311,6 +346,11 @@ const isCommentsHidden = ref(
   typeof window !== 'undefined' &&
     window.matchMedia?.('(max-width: 768px)').matches
 )
+// Set on every click, even to the same id: SharedCommentsPanel's own watch
+// needs a change to react to, and clicking the same dot twice in a row
+// should still re-scroll/re-glow the comment (see its handler for the
+// null-reset dance that makes that possible).
+const highlightedCommentId = ref(null)
 const isEntitiesHidden = ref(false)
 const isFullScreen = ref(false)
 const isHd = ref(true)
@@ -324,6 +364,9 @@ const rawPlayer = ref(null)
 const soundPlayer = ref(null)
 const videoProgressRef = ref(null)
 const volume = ref(100)
+// Fed by SharedCommentsPanel's own comments-changed emit — it owns the
+// fetch/post/edit flow, this player only needs the list for scrubber pins.
+const guestComments = ref([])
 
 // Tracks whether the very first entity has been auto-loaded after mount.
 // Plain `let` (not ref) — only used by the watchers below.
@@ -354,6 +397,100 @@ const currentEntity = computed(() => entityList.value[playingEntityIndex.value])
 const currentTaskId = computed(
   () => currentEntity.value?.preview_file_task_id || ''
 )
+
+// Version switcher: only offered when the share link opted in
+// (playlist.show_revision_selector) and the shot's task actually has more
+// than the one revision pinned into the playlist.
+const availableRevisions = ref([])
+const canSelectRevision = computed(
+  () =>
+    Boolean(props.playlist?.show_revision_selector) &&
+    availableRevisions.value.length > 1
+)
+
+const loadRevisionsForCurrentTask = async () => {
+  availableRevisions.value = []
+  if (!props.playlist?.show_revision_selector || !currentTaskId.value) return
+  try {
+    availableRevisions.value =
+      await playlistsApi.loadSharedPlaylistTaskRevisions(
+        props.token,
+        currentTaskId.value
+      )
+  } catch {
+    availableRevisions.value = []
+  }
+}
+
+// The raw player (MultiVideoViewer) reads preview_file_* straight off the
+// entity object passed in props.entities, not off currentPreview — so
+// switching revision means mutating that entity in place, the same way
+// onAnnotationsSaved/onStatusChanged already do for this component.
+const onRevisionSelected = async previewFileId => {
+  const entity = currentEntity.value
+  const revision = availableRevisions.value.find(r => r.id === previewFileId)
+  if (!entity || !revision) return
+  entity.preview_file_id = revision.id
+  entity.preview_file_extension = revision.extension
+  entity.preview_file_revision = revision.revision
+  entity.preview_file_width = revision.width
+  entity.preview_file_height = revision.height
+  entity.preview_file_duration = revision.duration
+  entity.preview_file_annotations = revision.annotations || []
+  currentPreviewIndex.value = 0
+  await nextTick()
+  rawPlayer.value?.reloadCurrentEntity()
+  onFrameUpdate(0)
+}
+
+watch(currentTaskId, loadRevisionsForCurrentTask, { immediate: true })
+
+// Pins for the scrubber, one per timed comment on the preview file
+// currently open — a comment made against a different revision doesn't
+// belong on this one's timeline (isCommentBoundToOtherPreview).
+const commentMarks = computed(() => {
+  return guestComments.value
+    .filter(comment => comment.object_id === currentTaskId.value)
+    .filter(
+      comment =>
+        !isCommentBoundToOtherPreview(comment, currentPreview.value?.id)
+    )
+    .map(comment => {
+      const time = parseTimeToSeconds(comment.timecode, fps.value)
+      if (time === null) return null
+      const person = store.getters.personMap.get(comment.person_id)
+      return {
+        id: comment.id,
+        time,
+        color: person?.color || null,
+        initials: person?.initials || '',
+        authorName: person?.full_name || '',
+        text: comment.text ? stringHelpers.shortenText(comment.text, 140) : '',
+        timeLabel: formatTime(time, fps.value),
+        // Only the guest's own comments can be dragged, same rule as
+        // editing/deleting a comment elsewhere in this panel.
+        editable: comment.person_id === props.guestId
+      }
+    })
+    .filter(Boolean)
+})
+
+// Forwarded down as a prop rather than persisted here: SharedCommentsPanel
+// owns comments.value (this player only gets a read-only copy back via
+// comments-changed), so it has to be the one to both apply the new
+// timecode locally and call the edit endpoint — same reasoning as
+// highlightedCommentId below.
+const movedComment = ref(null)
+const onCommentMarkMoved = ({ id, time }) => {
+  // A fresh object each time (not a mutation of the previous one) so the
+  // panel's watch fires even if the same comment is dropped on the same
+  // frame twice in a row.
+  movedComment.value = { id, time }
+}
+
+const onGuestCommentsChanged = comments => {
+  guestComments.value = comments || []
+}
 
 const currentEntityDisplayName = computed(() => {
   const entity = currentEntity.value
@@ -401,6 +538,28 @@ const currentAnnotations = computed(() => {
     (a, b) => a.time - b.time
   )
 })
+
+// Surfaces each drawn frame in the comments panel too, the same way a
+// text comment shows there — a reviewer scanning the list for feedback
+// shouldn't have to separately scrub the whole clip for annotations.
+// createdBy is set per-stroke by the annotation tool itself
+// (composables/players/sharedAnnotation.js); take the first stroke's
+// author as the entry's, since one frame's objects are almost always
+// drawn in one pass by one person.
+const annotationMarks = computed(() =>
+  currentAnnotations.value.map(annotation => {
+    const authorId = annotation.drawing?.objects?.[0]?.createdBy
+    const person = authorId ? store.getters.personMap.get(authorId) : null
+    return {
+      id: `annotation-${annotation.time}`,
+      frame: Math.round(annotation.time / frameDuration.value),
+      color: person?.color || null,
+      initials: person?.initials || '',
+      authorName: person?.full_name || '',
+      timeLabel: formatTime(annotation.time, fps.value)
+    }
+  })
+)
 
 // Number of preview files attached to the current entity (main preview +
 // its alternate previews / sub-previews). Used to drive the sub-preview
@@ -602,6 +761,14 @@ const advancePlaylist = () => {
     nextTick(playCurrentPreview)
     return
   }
+  // Sub-previews of the same entity always step through above — this only
+  // gates moving on to the *next entity*, the "timeline effect" the
+  // auto_advance setting toggles. Undefined (playlists from before the
+  // field existed) defaults to the pre-existing always-advance behavior.
+  if (props.playlist?.auto_advance === false) {
+    pause()
+    return
+  }
   const next = playingEntityIndex.value + 1
   if (next >= entityList.value.length) {
     pause()
@@ -791,6 +958,16 @@ const onTimeCodeClicked = ({ frame }) => {
   onFrameUpdate(frameNumber)
 }
 
+// Reset to null first so a second click on the same dot still re-triggers
+// SharedCommentsPanel's watch (Vue only reacts to an actual value change).
+const onCommentMarkClicked = commentId => {
+  isCommentsHidden.value = false
+  highlightedCommentId.value = null
+  nextTick(() => {
+    highlightedCommentId.value = commentId
+  })
+}
+
 const onAnnotationsSaved = annotations => {
   const entity = currentEntity.value
   if (entity) entity.preview_file_annotations = annotations
@@ -928,6 +1105,16 @@ watch(
 watch(volume, newVolume => {
   nextTick(() => rawPlayer.value?.setVolume(newVolume))
 })
+
+watch(
+  [currentFrameNumber, isPlaying],
+  () => {
+    if (!isPlaying.value) {
+      currentTimecode.value = currentFrameNumber.value * frameDuration.value
+    }
+  },
+  { immediate: true }
+)
 
 watch(isCommentsHidden, triggerPlayerResize)
 
@@ -1071,6 +1258,14 @@ onBeforeUnmount(() => {
   min-height: 0;
   min-width: 0;
   overflow: hidden;
+}
+
+.video-column {
+  display: flex;
+  flex: 1 1 0;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
 }
 
 .player-row {

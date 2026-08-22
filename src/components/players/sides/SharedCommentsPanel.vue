@@ -1,16 +1,34 @@
 <template>
   <aside class="shared-comments-panel flexcolumn">
     <form class="post-form" @submit.prevent="submitComment" v-if="canPost">
-      <textarea
-        ref="textareaRef"
-        class="comment-input"
-        rows="4"
-        :placeholder="$t('share.comment_placeholder')"
-        :disabled="submitting"
-        @keydown="onTextareaKeydown"
-        v-autosize
-        v-model="commentText"
-      ></textarea>
+      <div class="comment-input-wrapper">
+        <div class="timecode-chip" v-if="outgoingTimecode !== null">
+          <span
+            class="timecode-chip-dot"
+            :style="{ background: guestColor }"
+          ></span>
+          <span class="timecode-chip-label">{{ timecodeLabel }}</span>
+          <button
+            type="button"
+            class="timecode-chip-remove"
+            :title="$t('comments.remove_timecode')"
+            @click="dismissTimecode"
+          >
+            <x-icon :size="11" />
+          </button>
+        </div>
+        <textarea
+          ref="textareaRef"
+          class="comment-input"
+          :class="{ 'has-timecode-chip': outgoingTimecode !== null }"
+          rows="4"
+          :placeholder="$t('share.comment_placeholder')"
+          :disabled="submitting"
+          @keydown="onTextareaKeydown"
+          v-autosize
+          v-model="commentText"
+        ></textarea>
+      </div>
       <checklist
         class="draft-checklist"
         :checklist="checklistItems"
@@ -113,12 +131,43 @@
       <div class="loading-state" v-if="loading">
         <spinner />
       </div>
-      <p class="empty-state" v-else-if="taskComments.length === 0">
+      <p
+        class="empty-state"
+        v-else-if="taskComments.length === 0 && annotationMarks.length === 0"
+      >
         {{ $t('share.no_comments_yet') }}
       </p>
       <template v-else>
+        <button
+          type="button"
+          class="annotation-entry"
+          :key="mark.id"
+          @click="onAnnotationEntryClicked(mark)"
+          v-for="mark in annotationMarks"
+        >
+          <span
+            class="annotation-entry-dot"
+            :style="{ background: mark.color || undefined }"
+          >
+            {{ mark.initials }}
+          </span>
+          <span class="annotation-entry-body">
+            <span class="annotation-entry-header">
+              <span class="annotation-entry-author" v-if="mark.authorName">
+                {{ mark.authorName }}
+              </span>
+              <span class="annotation-entry-label">
+                {{ $t('share.drew_an_annotation') }}
+              </span>
+            </span>
+            <span class="annotation-entry-time">{{ mark.timeLabel }}</span>
+          </span>
+          <pencil-icon class="annotation-entry-icon" :size="14" />
+        </button>
         <task-comment
           class="comment-wrapper"
+          :class="{ 'is-glowing': glowingCommentId === comment.id }"
+          :data-comment-id="comment.id"
           :key="comment.id"
           :comment="comment"
           :task="buildTaskForComment(comment)"
@@ -128,7 +177,8 @@
           :is-checkable="isOwnedByGuest(comment)"
           :is-editable="isOwnedByGuest(comment)"
           :is-pinnable="false"
-          :is-replyable="false"
+          :is-replyable="canReply"
+          :shared-token="token"
           :task-types="[]"
           :team="[]"
           :url-prefix="'/api/shared/playlists/' + token"
@@ -137,6 +187,10 @@
           @edit-comment="onEditComment"
           @delete-comment="onDeleteComment"
           @checklist-updated="onChecklistUpdated"
+          @reply-added="onReplyAdded"
+          @reply-updated="onReplyUpdated"
+          @reply-deleted="onReplyDeleted"
+          @comment-updated="onCommentUpdated"
           @time-code-clicked="onCommentTimeCodeClicked"
           v-for="(comment, index) in taskComments"
         />
@@ -184,13 +238,28 @@
 </template>
 
 <script setup>
-import { FilmIcon, ListIcon, PaperclipIcon, XIcon } from 'lucide-vue-next'
-import { computed, onMounted, reactive, ref, watch } from 'vue'
+import {
+  FilmIcon,
+  ListIcon,
+  PaperclipIcon,
+  PencilIcon,
+  XIcon
+} from 'lucide-vue-next'
+import {
+  computed,
+  nextTick,
+  onBeforeUnmount,
+  onMounted,
+  reactive,
+  ref,
+  watch
+} from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useStore } from 'vuex'
 
+import { isCommentBoundToOtherPreview } from '@/lib/models'
 import { replaceTimeWithTimecode } from '@/lib/render'
-import { DEFAULT_FPS } from '@/lib/video'
+import { DEFAULT_FPS, formatTime } from '@/lib/video'
 import stringHelpers from '@/lib/string'
 import playlistsApi from '@/store/api/playlists'
 import { LOAD_PEOPLE_END } from '@/store/mutation-types'
@@ -218,10 +287,19 @@ const props = defineProps({
   currentTaskId: { type: String, default: '' },
   canComment: { type: Boolean, default: false },
   currentFrame: { type: Number, default: null },
-  entity: { type: Object, default: () => ({}) }
+  currentTimecode: { type: Number, default: null },
+  currentPreviewId: { type: String, default: null },
+  entity: { type: Object, default: () => ({}) },
+  highlightCommentId: { type: String, default: null },
+  movedComment: { type: Object, default: null },
+  annotationMarks: { type: Array, default: () => [] }
 })
 
-const emit = defineEmits(['status-changed', 'time-code-clicked'])
+const emit = defineEmits([
+  'comments-changed',
+  'status-changed',
+  'time-code-clicked'
+])
 
 const attachmentNamePrefix = computed(() =>
   stringHelpers.attachmentNamePrefix(
@@ -240,6 +318,9 @@ const pendingAttachments = ref([])
 const selectedStatusId = ref('')
 const taskStatuses = ref([])
 const textareaRef = ref(null)
+const commentsList = ref(null)
+const glowingCommentId = ref(null)
+let glowTimeout = null
 
 const loading = ref(true)
 const submitting = ref(false)
@@ -271,9 +352,44 @@ const canSubmit = computed(
   () => canPost.value && !submitting.value && selectedStatusId.value
 )
 
+// A reply carries no status, so it doesn't need availableStatuses like
+// canPost's top-level comment does.
+const canReply = computed(() => props.canComment && !!props.guestId)
+
+const timecodeLabel = computed(() =>
+  formatTime(props.currentTimecode, fps.value)
+)
+
+// Same deterministic name -> color used for avatars everywhere else
+// (colors.fromString via peopleStore's addAdditionalInformation, applied to
+// the guest on USER_LOGIN in SharedPlaylist.vue), so the dot always matches
+// this guest's own avatar color.
+const guestColor = computed(() => store.getters.user?.color || 'var(--accent)')
+
+// A guest can detach the auto-captured player position and post a general
+// comment instead — via the chip's remove button, or Backspace while the
+// textarea is empty (onTextareaKeydown). Re-offered on the next distinct
+// pause/seek (watched below).
+const isTimecodeDismissed = ref(false)
+const outgoingTimecode = computed(() =>
+  isTimecodeDismissed.value ? null : props.currentTimecode
+)
+const dismissTimecode = () => {
+  isTimecodeDismissed.value = true
+}
+watch(
+  () => props.currentTimecode,
+  () => {
+    isTimecodeDismissed.value = false
+  }
+)
+
 const taskComments = computed(() =>
   comments.value
     .filter(comment => comment.object_id === props.currentTaskId)
+    .filter(
+      comment => !isCommentBoundToOtherPreview(comment, props.currentPreviewId)
+    )
     .map(normalizeComment)
     .sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''))
 )
@@ -403,7 +519,9 @@ const submitComment = async () => {
       task_id: props.currentTaskId,
       task_status_id: selectedStatusId.value,
       text: commentText.value,
-      checklist: checklistItems.value.filter(item => item.text.trim())
+      checklist: checklistItems.value.filter(item => item.text.trim()),
+      timecode: outgoingTimecode.value,
+      preview_file_id: props.currentPreviewId
     })
     const withAttachments = await uploadAttachments(comment.id)
     if (withAttachments) comment = withAttachments
@@ -482,7 +600,8 @@ const confirmEditComment = async updatedComment => {
         guest_id: props.guestId,
         text: updatedComment.text,
         checklist: updatedComment.checklist || [],
-        task_status_id: updatedComment.task_status_id
+        task_status_id: updatedComment.task_status_id,
+        timecode: updatedComment.timecode
       }
     )
     comments.value = comments.value.map(c =>
@@ -545,6 +664,44 @@ const removeChecklistEntry = entry => {
   checklistItems.value = checklistItems.value.filter(e => e !== entry)
 }
 
+// Dragging a comment's dot on the scrubber (VideoProgress ->
+// SharedPlaylistPlayer's movedComment prop) lands here the same way a
+// checklist edit does: optimistic local update, persist, revert on
+// failure. Watched below rather than an emit, since the drag interaction
+// itself lives entirely inside VideoProgress/SharedPlaylistPlayer — this
+// panel never sees the drag, only its final result.
+const onCommentMoved = async ({ id, time }) => {
+  const existing = comments.value.find(c => c.id === id)
+  if (!existing) return
+  const previous = existing.timecode
+  existing.timecode = time
+  try {
+    const saved = await playlistsApi.editSharedPlaylistComment(
+      props.token,
+      id,
+      {
+        guest_id: props.guestId,
+        text: existing.text,
+        checklist: existing.checklist,
+        task_status_id: existing.task_status_id,
+        timecode: time
+      }
+    )
+    comments.value = comments.value.map(c =>
+      c.id === saved.id ? { ...c, ...saved } : c
+    )
+  } catch {
+    existing.timecode = previous
+  }
+}
+
+watch(
+  () => props.movedComment,
+  moved => {
+    if (moved) onCommentMoved(moved)
+  }
+)
+
 const onChecklistUpdated = async updated => {
   const existing = comments.value.find(c => c.id === updated.id)
   if (!existing) return
@@ -569,12 +726,61 @@ const onChecklistUpdated = async updated => {
   }
 }
 
+// The reply itself was already posted (Comment.vue's onReplyClicked calls
+// the API directly, since it's a guest action outside the Vuex-backed
+// studio flow) — this only merges the result into comments.value, the
+// source array taskComments is normalized from. Comment.vue can't do this
+// merge itself: the comment it holds is a per-render normalized copy
+// (SharedCommentsPanel.vue's normalizeComment), not the persistent entry.
+const onReplyAdded = ({ commentId, reply }) => {
+  const existing = comments.value.find(c => c.id === commentId)
+  if (!existing) return
+  if (!existing.replies) existing.replies = []
+  existing.replies.push(reply)
+}
+
+const onReplyUpdated = ({ commentId, reply }) => {
+  const existing = comments.value.find(c => c.id === commentId)
+  if (!existing?.replies) return
+  const index = existing.replies.findIndex(r => r.id === reply.id)
+  if (index !== -1) existing.replies[index] = reply
+}
+
+const onReplyDeleted = ({ commentId, replyId }) => {
+  const existing = comments.value.find(c => c.id === commentId)
+  if (!existing?.replies) return
+  existing.replies = existing.replies.filter(r => r.id !== replyId)
+}
+
+// The ack response is Comment.serialize(relations=True) — plain FK ids,
+// not the query-time joins (person/task_status objects) or the
+// reply-author embedding get_shared_task_comments adds. Merging it whole
+// would blank those back out, so replies (the only one of those fields it
+// also carries) is dropped from the merge and the rest — acknowledgements
+// above all — is applied as-is.
+const onCommentUpdated = updated => {
+  const existing = comments.value.find(c => c.id === updated.id)
+  if (!existing) return
+  const rest = { ...updated }
+  delete rest.replies
+  Object.assign(existing, rest)
+}
+
 // Functions — text input
 
 const onTextareaKeydown = event => {
   if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
     event.preventDefault()
     submitComment()
+    return
+  }
+  if (
+    event.key === 'Backspace' &&
+    commentText.value.length === 0 &&
+    outgoingTimecode.value !== null
+  ) {
+    event.preventDefault()
+    dismissTimecode()
   }
 }
 
@@ -631,6 +837,10 @@ const onCommentTimeCodeClicked = data => {
   emit('time-code-clicked', data)
 }
 
+const onAnnotationEntryClicked = mark => {
+  emit('time-code-clicked', { frame: mark.frame })
+}
+
 const onChecklistTimeCodeClicked = ({ frame, revision }) => {
   emit('time-code-clicked', {
     versionRevision: revision,
@@ -654,11 +864,41 @@ watch(
   }
 )
 
+// Lets the player draw scrubber pins for timed comments without owning
+// the fetch/post/edit flow itself, which stays entirely in this panel.
+watch(comments, list => {
+  emit('comments-changed', list)
+})
+
+// Scroll to and briefly glow the comment matching a clicked scrubber dot,
+// so it's obvious which entry in a long list the dot belongs to. Waits a
+// tick for taskComments to re-render (a dot click also reveals the panel
+// itself, so on first click the DOM node doesn't exist yet this frame).
+watch(
+  () => props.highlightCommentId,
+  commentId => {
+    if (!commentId) return
+    clearTimeout(glowTimeout)
+    glowingCommentId.value = commentId
+    nextTick(() => {
+      const target = commentsList.value?.querySelector(
+        `[data-comment-id="${commentId}"]`
+      )
+      target?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    })
+    glowTimeout = setTimeout(() => {
+      glowingCommentId.value = null
+    }, 2000)
+  }
+)
+
 // Lifecycle
 
 onMounted(() => {
   if (props.token) refresh()
 })
+
+onBeforeUnmount(() => clearTimeout(glowTimeout))
 </script>
 
 <style lang="scss" scoped>
@@ -693,7 +933,7 @@ onMounted(() => {
   align-items: center;
   background: transparent;
   border: 0;
-  border-radius: 6px;
+  border-radius: 7px;
   color: var(--text-muted);
   cursor: pointer;
   display: inline-flex;
@@ -711,6 +951,66 @@ onMounted(() => {
   }
 }
 
+.comment-input-wrapper {
+  position: relative;
+}
+
+.timecode-chip {
+  align-items: center;
+  background: var(--accent-soft);
+  border: 1px solid rgba(124, 92, 255, 0.35);
+  border-radius: 999px;
+  display: inline-flex;
+  gap: 0.6em;
+  left: 0.6em;
+  padding: 0.15em 0.3em 0.15em 0.6em;
+  position: absolute;
+  top: 0.6em;
+  z-index: 2;
+}
+
+.timecode-chip-dot {
+  border-radius: 50%;
+  flex-shrink: 0;
+  height: 8px;
+  width: 8px;
+}
+
+.timecode-chip-label {
+  color: var(--accent);
+  font-size: 0.78em;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.timecode-chip-remove {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  border-radius: 50%;
+  color: var(--accent);
+  cursor: pointer;
+  display: inline-flex;
+  padding: 2px;
+
+  &:hover {
+    color: var(--text);
+  }
+}
+
+// Room for the chip on the first line only — text-indent (not padding-left)
+// so line 2+ falls back flush under the chip instead of staying indented.
+// A plain constant, not measured: timecodeLabel is always the fixed-width
+// HH:MM:SS:FF from formatTime, so the chip's rendered width never actually
+// varies. (A prior version measured it live via ResizeObserver instead of
+// using a constant; that added a timing dependency for no benefit and
+// broke — the indent reverted to an unmeasured fallback once playback
+// started re-rendering this panel every frame.) Tune this value directly
+// if the chip/text spacing needs adjusting.
+textarea.has-timecode-chip {
+  text-indent: 9em;
+}
+
 .comment-input {
   background: var(--surface-inset);
   border: 1px solid var(--border-soft);
@@ -721,7 +1021,7 @@ onMounted(() => {
   line-height: 1.5;
   max-height: 14em;
   min-height: 7em;
-  padding: 0.7em 0.8em;
+  padding: 0.7em 0.7em;
   resize: none;
   transition:
     border-color 0.2s ease,
@@ -742,6 +1042,87 @@ onMounted(() => {
 .comment-wrapper {
   animation: commentFadeIn 0.45s ease both;
   margin-bottom: 0;
+
+  &.is-glowing :deep(article.comment) {
+    animation: commentGlow 2s ease-out;
+  }
+}
+
+.annotation-entry {
+  align-items: center;
+  animation: commentFadeIn 0.45s ease both;
+  background: var(--surface-raised);
+  border: 1px solid var(--border-soft);
+  border-radius: 14px;
+  color: inherit;
+  cursor: pointer;
+  display: flex;
+  font: inherit;
+  gap: 0.6em;
+  margin: 0.6em 0;
+  padding: 0.6em 0.8em;
+  text-align: left;
+  transition: border-color 0.2s ease;
+  width: 100%;
+
+  &:hover {
+    border-color: var(--border-strong);
+  }
+}
+
+.annotation-entry-dot {
+  align-items: center;
+  background: var(--accent);
+  border-radius: 50%;
+  color: white;
+  display: flex;
+  flex-shrink: 0;
+  font-size: 0.7em;
+  font-weight: 700;
+  height: 26px;
+  justify-content: center;
+  width: 26px;
+}
+
+.annotation-entry-body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 0.1em;
+  min-width: 0;
+}
+
+.annotation-entry-header {
+  align-items: baseline;
+  display: flex;
+  gap: 0.35em;
+  overflow: hidden;
+}
+
+.annotation-entry-author {
+  color: var(--text);
+  flex-shrink: 0;
+  font-size: 0.85em;
+  font-weight: 600;
+}
+
+.annotation-entry-label {
+  color: var(--text-muted);
+  font-size: 0.85em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.annotation-entry-time {
+  color: var(--text-muted);
+  font-size: 0.75em;
+  font-variant-numeric: tabular-nums;
+}
+
+.annotation-entry-icon {
+  color: var(--text-muted);
+  flex-shrink: 0;
 }
 
 .comments-list {
@@ -1402,9 +1783,27 @@ onMounted(() => {
   }
 }
 
+@keyframes commentGlow {
+  0%,
+  100% {
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.2);
+  }
+  15%,
+  60% {
+    box-shadow:
+      0 0 0 2px rgba(124, 92, 255, 0.55),
+      0 0 24px 4px rgba(124, 92, 255, 0.45);
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .comment-wrapper {
     animation: none;
+
+    &.is-glowing :deep(article.comment) {
+      animation: none;
+      box-shadow: 0 0 0 2px rgba(124, 92, 255, 0.55);
+    }
   }
 }
 

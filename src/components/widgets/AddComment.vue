@@ -40,88 +40,110 @@
         </span>
       </div>
 
-      <at-ta
-        :ats="['#', '@']"
-        :members="[...membersForAts['@'], ...membersForAts['#']]"
-        name-key="full_name"
-        :limit="2"
-        :filter-match="atOptionsFilter"
-        @update:value="onAtTextChanged"
+      <div
+        class="comment-input-wrapper"
         v-if="mode === 'status' || showCommentArea"
       >
-        <template #item="{ item }">
-          <template v-if="item.isTime"> ⏱️ frame </template>
-          <template v-else-if="item.isDepartment">
-            <span
-              class="mr05"
-              :style="{
-                background: item.color,
-                width: '10px',
-                height: '10px',
-                'border-radius': '50%'
-              }"
-            >
-              &nbsp;
-            </span>
-            {{ item.full_name }}
-          </template>
-          <template v-else-if="item.isTaskType">
-            <task-type-name
-              :task-type="{
-                color: item.color,
-                name: item.full_name
-              }"
-              :is-link="false"
-              thin
-            />
-          </template>
-          <template v-else>
-            <div class="flexrow">
-              <people-avatar
-                class="flexrow-item"
-                :person="item"
-                :size="20"
-                :font-size="11"
-                :is-lazy="false"
-                :is-link="false"
-              />
-              <span class="flexrow-item">
-                {{ item.full_name }}
+        <div class="timecode-chip" v-if="outgoingTimecode !== null">
+          <span
+            class="timecode-chip-dot"
+            :style="{ background: currentUserColor }"
+          ></span>
+          <span class="timecode-chip-label">{{ timecodeLabel }}</span>
+          <button
+            type="button"
+            class="timecode-chip-remove"
+            :title="$t('comments.remove_timecode')"
+            @click="dismissTimecode"
+          >
+            <x-icon :size="11" />
+          </button>
+        </div>
+
+        <at-ta
+          :ats="['#', '@']"
+          :members="[...membersForAts['@'], ...membersForAts['#']]"
+          name-key="full_name"
+          :limit="2"
+          :filter-match="atOptionsFilter"
+          @update:value="onAtTextChanged"
+        >
+          <template #item="{ item }">
+            <template v-if="item.isTime"> frame </template>
+            <template v-else-if="item.isDepartment">
+              <span
+                class="mr05"
+                :style="{
+                  background: item.color,
+                  width: '10px',
+                  height: '10px',
+                  'border-radius': '50%'
+                }"
+              >
+                &nbsp;
               </span>
-            </div>
+              {{ item.full_name }}
+            </template>
+            <template v-else-if="item.isTaskType">
+              <task-type-name
+                :task-type="{
+                  color: item.color,
+                  name: item.full_name
+                }"
+                :is-link="false"
+                thin
+              />
+            </template>
+            <template v-else>
+              <div class="flexrow">
+                <people-avatar
+                  class="flexrow-item"
+                  :person="item"
+                  :size="20"
+                  :font-size="11"
+                  :is-lazy="false"
+                  :is-link="false"
+                />
+                <span class="flexrow-item">
+                  {{ item.full_name }}
+                </span>
+              </div>
+            </template>
           </template>
-        </template>
-        <textarea
-          ref="commentTextareaRef"
-          class="textarea flexrow-item"
-          :disabled="isLoading"
-          :placeholder="$t('comments.add_comment')"
-          rows="2"
-          @keyup.enter.ctrl="
-            runAddComment(
-              text,
-              attachments,
-              checklistItems,
-              task_status_id,
-              nextRevision,
-              link
-            )
-          "
-          @keyup.enter.meta="
-            runAddComment(
-              text,
-              attachments,
-              checklistItems,
-              task_status_id,
-              nextRevision,
-              link
-            )
-          "
-          v-autosize
-          v-focus
-          v-model="text"
-        ></textarea>
-      </at-ta>
+          <textarea
+            ref="commentTextareaRef"
+            class="textarea flexrow-item"
+            :class="{ 'has-timecode-chip': outgoingTimecode !== null }"
+            :disabled="isLoading"
+            :placeholder="$t('comments.add_comment')"
+            rows="2"
+            @keydown="onTextareaKeydown"
+            @keyup.enter.ctrl="
+              runAddComment(
+                text,
+                attachments,
+                checklistItems,
+                task_status_id,
+                nextRevision,
+                link
+              )
+            "
+            @keyup.enter.meta="
+              runAddComment(
+                text,
+                attachments,
+                checklistItems,
+                task_status_id,
+                nextRevision,
+                link
+              )
+            "
+            v-autosize
+            v-focus
+            v-model="text"
+          ></textarea>
+        </at-ta>
+      </div>
       <div
         class="flexrow link-field"
         v-if="mode === 'publish' && showLinkField"
@@ -434,13 +456,14 @@ import {
 import { useRoute } from 'vue-router'
 import { useStore } from 'vuex'
 import AtTa from 'vue-at/dist/vue-at-textarea'
-import { EyeIcon, EyeOffIcon } from 'lucide-vue-next'
+import { EyeIcon, EyeOffIcon, XIcon } from 'lucide-vue-next'
 
 import drafts from '@/lib/drafts'
 import { remove } from '@/lib/models'
 import { replaceTimeWithTimecode } from '@/lib/render'
 import preferences from '@/lib/preferences'
 import strings from '@/lib/string'
+import { formatTime } from '@/lib/video'
 import filesApi from '@/store/api/files'
 
 import { useAtMentionsMembers } from '@/composables/atMentions'
@@ -516,6 +539,17 @@ const props = defineProps({
   time: {
     type: Number,
     default: 0
+  },
+  // Current player position in seconds, matching comments.timecode.
+  timecode: {
+    type: Number,
+    default: null
+  },
+  // Preview file currently being viewed — stamped on the comment so it
+  // only surfaces while that revision is the one open (comments.preview_file_id).
+  previewFileId: {
+    type: String,
+    default: null
   },
   previewForms: {
     type: Array,
@@ -710,6 +744,44 @@ const isRevisionBelowCurrent = computed(() => {
   return Number(value) <= props.revision
 })
 
+const timecodeLabel = computed(() => formatTime(props.timecode, props.fps))
+
+// Same deterministic name -> color used for avatars everywhere else
+// (colors.fromString via peopleStore's addAdditionalInformation), so the
+// dot always matches the current user's own avatar color.
+const currentUserColor = computed(
+  () => store.getters.user?.color || 'var(--text)'
+)
+
+// A guest/artist can detach the auto-captured player position and post a
+// general comment instead — via the chip's remove button, or Backspace
+// while the textarea is empty (onTextareaKeydown). Re-offered on the next
+// distinct pause/seek (watched below).
+const isTimecodeDismissed = ref(false)
+const outgoingTimecode = computed(() =>
+  isTimecodeDismissed.value ? null : props.timecode
+)
+const dismissTimecode = () => {
+  isTimecodeDismissed.value = true
+}
+watch(
+  () => props.timecode,
+  () => {
+    isTimecodeDismissed.value = false
+  }
+)
+
+const onTextareaKeydown = event => {
+  if (
+    event.key === 'Backspace' &&
+    text.value.length === 0 &&
+    outgoingTimecode.value !== null
+  ) {
+    event.preventDefault()
+    dismissTimecode()
+  }
+}
+
 const shortenText = strings.shortenText
 
 const toggleLinkField = (reset = false) => {
@@ -799,7 +871,9 @@ const runAddComment = (
     taskStatusId,
     revisionVal,
     linkVal,
-    forClient.value
+    forClient.value,
+    outgoingTimecode.value,
+    props.previewFileId
   )
 }
 
@@ -1094,6 +1168,65 @@ defineExpose({
 article.add-comment {
   padding: 0;
   border-radius: 10px;
+}
+
+.comment-input-wrapper {
+  position: relative;
+}
+
+.timecode-chip {
+  align-items: center;
+  background: var(--background-selected);
+  border-radius: 999px;
+  display: inline-flex;
+  gap: 0.25em;
+  left: 0.6em;
+  padding: 0.15em 0.3em 0.15em 0.6em;
+  position: absolute;
+  top: 0.6em;
+  z-index: 2;
+}
+
+.timecode-chip-dot {
+  border-radius: 50%;
+  flex-shrink: 0;
+  height: 8px;
+  width: 8px;
+}
+
+.timecode-chip-label {
+  color: var(--text);
+  font-size: 0.78em;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.timecode-chip-remove {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  border-radius: 50%;
+  color: var(--text-alt);
+  cursor: pointer;
+  display: inline-flex;
+  padding: 2px;
+
+  &:hover {
+    color: var(--text);
+  }
+}
+
+textarea.has-timecode-chip {
+  padding-top: 2em;
+
+  // While empty, the placeholder sits on the chip's own line instead of
+  // being pushed below it — padding-left clears the chip's rendered width
+  // (its timecode label is a fixed HH:MM:SS:FF length, so this is stable).
+  // Once real text is typed, it drops back under the chip like before.
+  &:placeholder-shown {
+    padding-left: 9.5em;
+    padding-top: 0.5em;
+  }
 }
 
 .add-comment {

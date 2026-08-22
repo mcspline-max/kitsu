@@ -36,6 +36,7 @@
       </span>
     </div>
 
+    <span class="header-separator" v-if="currentEntityDisplayName">|</span>
     <span
       class="flexrow-item current-entity-name"
       :title="currentEntityDisplayName"
@@ -43,6 +44,15 @@
     >
       {{ currentEntityDisplayName }}
     </span>
+    <combobox
+      class="revision-select"
+      :options="revisionOptions"
+      :model-value="currentPreviewId"
+      :with-margin="false"
+      thin
+      @update:model-value="$emit('revision-selected', $event)"
+      v-if="canSelectRevision"
+    />
 
     <div class="filler"></div>
 
@@ -66,11 +76,16 @@
 
 <script setup>
 import { LogOutIcon } from 'lucide-vue-next'
+import { computed } from 'vue'
 
 import ButtonSimple from '@/components/widgets/ButtonSimple.vue'
+import Combobox from '@/components/widgets/Combobox.vue'
 
-defineProps({
+const props = defineProps({
+  availableRevisions: { type: Array, default: () => [] },
+  canSelectRevision: { type: Boolean, default: false },
   currentEntityDisplayName: { type: String, default: '' },
+  currentPreviewId: { type: String, default: '' },
   entityCount: { type: Number, default: 0 },
   guestDisplayName: { type: String, default: '' },
   guestId: { type: String, default: '' },
@@ -79,7 +94,14 @@ defineProps({
   projectName: { type: String, default: '' }
 })
 
-defineEmits(['logout', 'next-entity', 'previous-entity'])
+defineEmits(['logout', 'next-entity', 'previous-entity', 'revision-selected'])
+
+const revisionOptions = computed(() =>
+  props.availableRevisions.map(revision => ({
+    value: revision.id,
+    label: `v${revision.revision}`
+  }))
+)
 </script>
 
 <style lang="scss" scoped>
@@ -123,6 +145,11 @@ defineEmits(['logout', 'next-entity', 'previous-entity'])
   .filler {
     flex: 1;
   }
+
+  // Combobox wraps a real native <select>: its own options list is an
+  // OS-level popup, not something we position/paint ourselves, so there's
+  // no z-index/stacking fight with the video player below it. Only the
+  // closed-state control needs re-theming for the dark header.
 
   .guest-name {
     color: rgba(244, 245, 250, 0.6);
@@ -206,8 +233,41 @@ defineEmits(['logout', 'next-entity', 'previous-entity'])
     .entity-nav,
     .guest-name,
     .header-separator,
-    .project-name {
-      display: none;
+    .project-name,
+    .revision-select {
+      :deep(select) {
+        background-color: #0e0e13;
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        color: rgba(244, 245, 250, 0.85);
+        font-size: 0.95em;
+        font-weight: 500;
+        padding-left: 0.8em;
+        padding-right: 2em;
+        outline: none;
+        position: relative;
+
+        // Remove all browser defaults
+        appearance: none;
+        -webkit-appearance: none;
+        -moz-appearance: none;
+
+        &:hover,
+        &:focus {
+          border-color: rgba(124, 92, 255, 0.55);
+          box-shadow: 0 0 0 2px rgba(124, 92, 255, 0.55); // Instead of outline
+        }
+      }
+
+      :deep(.select)::after {
+        content: '';
+        position: absolute;
+        right: 0.6em;
+        top: 50%;
+        transform: translateY(-50%);
+        pointer-events: none;
+        border-color: rgba(244, 245, 250, 0.6) transparent transparent
+          rgba(244, 245, 250, 0.6);
+      }
     }
 
     .playlist-name {

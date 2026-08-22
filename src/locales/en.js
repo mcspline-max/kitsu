@@ -241,6 +241,7 @@ export default {
     for_client_on: 'Text visible to clients. Click to make text non visible to clients',
     for_client_badge: 'Text visible to client',
     toggle_for_client: 'Client visibility',
+    remove_timecode: 'Remove timecode',
     edit_title: 'Edit comment',
     edited_by: 'Edited by {name}',
     empty_text: 'This comment is empty',
@@ -1258,6 +1259,7 @@ export default {
       create_new: 'Create a new link',
       expiration: 'Expiration date (optional)',
       can_comment: 'Allow comments',
+      show_revision_selector: 'Let guests switch revisions',
       generate: 'Generate a new link',
       copy: 'Copy link',
       open: 'Open link in a new tab',
@@ -1305,7 +1307,9 @@ export default {
       created_at: 'Creation date',
       for_entity: 'Select entity to display',
       for_client: 'To be shared with',
-      updated_at: 'Update date'
+      updated_at: 'Update date',
+      auto_advance: 'Auto-play through entries',
+      auto_advance_help: 'On: playback moves to the next entry automatically, like an edit. Off: stays on the current entry — a static list to browse manually.'
     },
     actions: {
       annotation: 'Annotation',
@@ -1696,6 +1700,7 @@ export default {
     player_placeholder: 'Player will be displayed here.',
     no_preview: 'No preview',
     no_comments_yet: 'No comments yet.',
+    drew_an_annotation: 'drew an annotation',
     comment_placeholder: 'Leave a comment...',
     comments_disabled: 'Comments are disabled for this link.',
     download_preview: 'Download preview',

@@ -20,6 +20,23 @@
             v-model="form.task_status_id"
           />
 
+          <div
+            class="field"
+            v-if="form.timecode !== null && form.timecode !== undefined"
+          >
+            <label class="label">
+              {{ $t('comments.timecode') || 'Timecode' }}
+            </label>
+            <div class="control">
+              <input
+                class="input"
+                type="text"
+                placeholder="00:00:00:00 or seconds"
+                v-model="form.timecode"
+              />
+            </div>
+          </div>
+
           <div class="field">
             <label class="label">
               {{ $t('comments.text') }}
@@ -33,7 +50,7 @@
               @update:value="onAtTextChanged"
             >
               <template #item="{ item }">
-                <template v-if="item.isTime"> ⏱️ frame </template>
+                <template v-if="item.isTime"> frame </template>
                 <template v-else-if="item.isDepartment">
                   <span
                     class="mr05"
@@ -83,6 +100,7 @@
               </textarea>
             </at-ta>
           </div>
+
           <text-field
             ref="inputLink"
             :label="$t('main.link')"
@@ -92,6 +110,7 @@
             v-model.trim="form.link"
             v-if="isPreviewsComment"
           />
+
           <label class="label">
             {{ $t('comments.checklist') }}
           </label>
@@ -106,6 +125,7 @@
             @insert-item="onInsertChecklistItem"
             @remove-task="removeTask"
           />
+
           <label class="label">
             {{ $t('comments.attachments') }}
           </label>
@@ -134,6 +154,7 @@
             {{ $t('comments.no_attachments') }}
           </div>
         </form>
+
         <label class="label mt2">
           {{ $t('comments.attachments_to_add') }}
         </label>
@@ -166,6 +187,7 @@
             hide-file-names
           />
         </div>
+
         <modal-footer
           :error-text="$t('comments.edit_error')"
           :is-disabled="!isValidForm"
@@ -191,6 +213,7 @@ import { useModal } from '@/composables/modal'
 import files from '@/lib/files'
 import { remove } from '@/lib/models'
 import { replaceTimeWithTimecode } from '@/lib/render'
+import { formatTime, parseTimeToSeconds } from '@/lib/video'
 
 import ModalFooter from '@/components/modals/ModalFooter.vue'
 import Checklist from '@/components/widgets/Checklist.vue'
@@ -235,7 +258,8 @@ const form = ref({
   text: '',
   task_status_id: null,
   checklist: [{ checked: false, text: '' }],
-  link: null
+  link: null,
+  timecode: null
 })
 
 const getTaskStatusForCurrentUser = computed(
@@ -274,7 +298,10 @@ const runConfirmation = event => {
       checklist: form.value.checklist.filter(item => item.text),
       newAttachmentFiles: attachmentFiles.value,
       attachmentFilesToDelete: attachmentFilesToDelete.value,
-      links: form.value.link ? [form.value.link] : null
+      links: form.value.link ? [form.value.link] : null,
+      // form.timecode is the human-typed display string ("00:00:00:00 or
+      // seconds"); comments.timecode is a Float column of raw seconds.
+      timecode: parseTimeToSeconds(form.value.timecode, props.fps)
     })
   }
 }
@@ -305,7 +332,12 @@ const reset = () => {
       task_status_id: props.commentToEdit.task_status_id,
       checklist: [...props.commentToEdit.checklist],
       attachment_files: [...props.commentToEdit.attachment_files],
-      link: props.commentToEdit.links?.[0]
+      link: props.commentToEdit.links?.[0],
+      timecode:
+        props.commentToEdit.timecode !== null &&
+        props.commentToEdit.timecode !== undefined
+          ? formatTime(props.commentToEdit.timecode, props.fps)
+          : null
     }
     if (form.value.checklist.length === 0) {
       form.value.checklist = [{ checked: false, text: '' }]
@@ -316,7 +348,8 @@ const reset = () => {
       task_status_id: null,
       checklist: [{ checked: false, text: '' }],
       attachment_files: [],
-      link: null
+      link: null,
+      timecode: null
     }
   }
 }

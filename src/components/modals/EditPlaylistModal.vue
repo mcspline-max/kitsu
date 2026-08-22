@@ -28,6 +28,12 @@
         :up="true"
         v-model="form.task_type_id"
       />
+      <toggle-button
+        class="mt1"
+        :label="$t('playlists.fields.auto_advance')"
+        v-model="form.auto_advance"
+      />
+      <p class="help-text">{{ $t('playlists.fields.auto_advance_help') }}</p>
     </form>
 
     <modal-footer
@@ -74,6 +80,7 @@ import ModalFooter from '@/components/modals/ModalFooter.vue'
 import ComboboxSimple from '@/components/widgets/ComboboxSimple.vue'
 import ComboboxTaskType from '@/components/widgets/ComboboxTaskType.vue'
 import TextField from '@/components/widgets/TextField.vue'
+import ToggleButton from '@/components/widgets/ToggleButton.vue'
 
 const { t } = useI18n()
 const store = useStore()
@@ -96,7 +103,8 @@ const form = ref({
   for_entity: props.playlistToEdit.for_entity,
   for_client: props.playlistToEdit.for_client,
   is_for_all: false,
-  task_type_id: props.taskTypeId
+  task_type_id: props.taskTypeId,
+  auto_advance: props.playlistToEdit.auto_advance ?? true
 })
 const forClient = ref('false')
 const nameField = ref(null)
@@ -177,13 +185,15 @@ const resetForm = () => {
     form.value.for_client = props.playlistToEdit.for_client
     form.value.is_for_all = isAll
     form.value.task_type_id = props.playlistToEdit.task_type_id
+    form.value.auto_advance = props.playlistToEdit.auto_advance ?? true
   } else {
     form.value = {
       name: props.playlistToEdit.name,
       for_entity: props.playlistToEdit.for_entity || defaultForEntity.value,
       for_client: 'false',
       is_for_all: isAll,
-      task_type_id: props.taskTypeId
+      task_type_id: props.taskTypeId,
+      auto_advance: true
     }
   }
 }
@@ -207,6 +217,12 @@ watch(
 <style lang="scss" scoped>
 .button {
   border-radius: 5px;
+}
+
+.help-text {
+  color: $grey;
+  font-size: 0.85em;
+  margin-top: 0.3em;
 }
 
 .success-footer {

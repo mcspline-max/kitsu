@@ -94,6 +94,15 @@
               }}
             </span>
           </div>
+          <div class="revision-selector-toggle">
+            <checkbox
+              :toggle="true"
+              :disabled="revisionSelectorLoading[link.token]"
+              :label="$t('playlists.share_modal.show_revision_selector')"
+              :model-value="link.show_revision_selector"
+              @update:model-value="onToggleRevisionSelector(link)"
+            />
+          </div>
           <div class="invite-section" v-if="openInviteToken === link.token">
             <label class="label">
               {{ $t('playlists.share_modal.invite_recipients') }}
@@ -242,6 +251,7 @@ const openInviteToken = ref(null)
 const inviteState = reactive({})
 const confirmingRevoke = ref(null)
 const isCreateFormVisible = ref(false)
+const revisionSelectorLoading = reactive({})
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
@@ -404,6 +414,24 @@ const createLink = async () => {
     errors.create = true
   }
   loading.create = false
+}
+
+// Version switching is toggled per link, straight from its row — not a
+// create-time-only choice, so a studio can flip it any time without
+// having to regenerate the link (and lose whoever already has it).
+const onToggleRevisionSelector = async link => {
+  revisionSelectorLoading[link.token] = true
+  try {
+    const updated = await store.dispatch('updatePlaylistShareLink', {
+      playlistId: props.playlist.id,
+      token: link.token,
+      data: { show_revision_selector: !link.show_revision_selector }
+    })
+    link.show_revision_selector = updated.show_revision_selector
+  } catch (err) {
+    console.error(err)
+  }
+  revisionSelectorLoading[link.token] = false
 }
 
 const askRevoke = token => {
@@ -611,6 +639,18 @@ onMounted(() => {
   display: flex;
   gap: 0.5em;
   margin-top: 0.3em;
+}
+
+.revision-selector-toggle {
+  margin-top: 0.5em;
+
+  :deep(.field) {
+    margin-bottom: 0;
+  }
+
+  :deep(.checkbox-field label) {
+    font-size: 0.85em;
+  }
 }
 
 .info-tag {

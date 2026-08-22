@@ -66,6 +66,9 @@ export default {
       is_for_all: playlist.is_for_all,
       task_type_id: playlist.task_type_id
     }
+    if (playlist.auto_advance !== undefined) {
+      data.auto_advance = playlist.auto_advance
+    }
     return client.ppost('/api/data/playlists/', data)
   },
 
@@ -81,6 +84,9 @@ export default {
         preview_file_id: shot.preview_file_id
       }))
     if (playlist.for_entity) data.for_entity = playlist.for_entity
+    if (playlist.auto_advance !== undefined) {
+      data.auto_advance = playlist.auto_advance
+    }
     data.task_type_id = playlist.task_type_id || null
     return client.pput(`/api/data/playlists/${playlist.id}`, data)
   },
@@ -122,6 +128,10 @@ export default {
     return client.ppost(`/api/data/playlists/${playlistId}/share`, data)
   },
 
+  updateShareLink(playlistId, token, data) {
+    return client.pput(`/api/data/playlists/${playlistId}/share/${token}`, data)
+  },
+
   revokeShareLink(playlistId, token) {
     return client.pdel(`/api/data/playlists/${playlistId}/share/${token}`)
   },
@@ -145,6 +155,12 @@ export default {
     return client.pget(`/api/shared/playlists/${shareToken}/context`)
   },
 
+  loadSharedPlaylistTaskRevisions(shareToken, taskId) {
+    return client.pget(
+      `/api/shared/playlists/${shareToken}/tasks/${taskId}/revisions`
+    )
+  },
+
   saveSharedPlaylistAnnotations(shareToken, data) {
     return client.pput(`/api/shared/playlists/${shareToken}/annotations`, data)
   },
@@ -160,6 +176,38 @@ export default {
   editSharedPlaylistComment(shareToken, commentId, data) {
     return client.pput(
       `/api/shared/playlists/${shareToken}/comments/${commentId}`,
+      data
+    )
+  },
+
+  postSharedPlaylistCommentReply(shareToken, commentId, data) {
+    return client.ppost(
+      `/api/shared/playlists/${shareToken}/comments/${commentId}/reply`,
+      data
+    )
+  },
+
+  editSharedPlaylistCommentReply(shareToken, commentId, replyId, data) {
+    return client.pput(
+      `/api/shared/playlists/${shareToken}/comments/${commentId}/reply/${replyId}`,
+      data
+    )
+  },
+
+  deleteSharedPlaylistCommentReply(
+    shareToken,
+    commentId,
+    replyId,
+    { guest_id }
+  ) {
+    return client.pdel(
+      `/api/shared/playlists/${shareToken}/comments/${commentId}/reply/${replyId}?guest_id=${guest_id}`
+    )
+  },
+
+  acknowledgeSharedPlaylistComment(shareToken, commentId, data) {
+    return client.ppost(
+      `/api/shared/playlists/${shareToken}/comments/${commentId}/ack`,
       data
     )
   },
