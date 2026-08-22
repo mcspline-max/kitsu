@@ -2160,6 +2160,7 @@ export default {
       entity_name: 'Name',
       estimated_quota: 'Quota',
       estimation: 'Estimation',
+      is_favorite: 'Favorite',
       frames: 'Fram.',
       last_comment: 'Last comment',
       last_comment_date: 'Last comment',

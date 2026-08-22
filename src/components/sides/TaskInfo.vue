@@ -96,6 +96,14 @@
                 {{ title }}
               </template>
             </div>
+            <button
+              class="favorite-button flexrow-item"
+              :class="{ 'is-favorite': task.is_favorite }"
+              :title="$t('tasks.fields.is_favorite')"
+              @click="toggleFavorite"
+            >
+              <star-icon :size="18" />
+            </button>
           </div>
         </div>
 
@@ -383,7 +391,7 @@
 
 <script setup>
 // Imports
-import { CornerRightUpIcon, XIcon } from 'lucide-vue-next'
+import { CornerRightUpIcon, StarIcon, XIcon } from 'lucide-vue-next'
 import moment from 'moment'
 import {
   computed,
@@ -513,6 +521,14 @@ const props = defineProps({
 })
 
 const emit = defineEmits(['comment-added', 'task-removed', 'time-code-clicked'])
+
+const toggleFavorite = () => {
+  if (!props.task) return
+  store.dispatch('updateTask', {
+    taskId: props.task.id,
+    data: { is_favorite: !props.task.is_favorite }
+  })
+}
 
 // State
 const draftComment = reactive({})
@@ -1783,6 +1799,28 @@ defineExpose({
 
 .header-title .flexrow-item {
   margin-bottom: 0.5em;
+}
+
+.favorite-button {
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0.2em;
+  color: $grey;
+  display: flex;
+  align-items: center;
+
+  &:hover {
+    color: #f5a623;
+  }
+
+  &.is-favorite {
+    color: #f5a623;
+
+    svg {
+      fill: #f5a623;
+    }
+  }
 }
 
 .title {
