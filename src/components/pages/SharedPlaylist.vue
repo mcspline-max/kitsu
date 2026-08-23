@@ -98,9 +98,12 @@ const needsIdentity = computed(
   () => shareLink.value?.can_comment && !guestId.value
 )
 
+// The logo endpoint is cached for a week server-side (fine for immutable
+// preview thumbnails, wrong for a mutable organisation logo at a stable
+// URL), so bust it here the same way Sidebar.vue/Settings.vue do.
 const organisationLogoUrl = computed(() =>
   organisation.value?.has_avatar && token.value
-    ? `/api/shared/playlists/${token.value}/organisation/logo`
+    ? `/api/shared/playlists/${token.value}/organisation/logo?t=${Date.now()}`
     : ''
 )
 

@@ -390,9 +390,12 @@ const sharedApiPrefix = computed(() =>
   props.token ? `/api/shared/playlists/${props.token}` : ''
 )
 
+// The logo endpoint is cached for a week server-side (fine for immutable
+// preview thumbnails, wrong for a mutable organisation logo at a stable
+// URL), so bust it here the same way Sidebar.vue/Settings.vue do.
 const organisationLogoUrl = computed(() =>
   props.organisationHasAvatar && sharedApiPrefix.value
-    ? `${sharedApiPrefix.value}/organisation/logo`
+    ? `${sharedApiPrefix.value}/organisation/logo?t=${Date.now()}`
     : ''
 )
 
