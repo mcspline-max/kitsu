@@ -397,7 +397,8 @@ const taskComments = computed(() =>
 // Functions — helpers
 
 const normalizeComment = comment => {
-  const enrichedPerson = store.getters.personMap.get(comment.person_id)
+  const personMap = store.getters.personMap
+  const enrichedPerson = personMap.get(comment.person_id)
   return {
     ...comment,
     person: enrichedPerson || comment.person || {},
@@ -408,7 +409,10 @@ const normalizeComment = comment => {
     acknowledgements: comment.acknowledgements || [],
     mentions: comment.mentions || [],
     department_mentions: comment.department_mentions || [],
-    replies: comment.replies || [],
+    replies: (comment.replies || []).map(reply => ({
+      ...reply,
+      person: personMap.get(reply.person_id) || reply.person || {}
+    })),
     task_status: comment.task_status || {}
   }
 }
@@ -439,18 +443,21 @@ const buildFullName = person => {
 // avatars and mentions resolve in the embedded comment widgets.
 const populatePersonMap = () => {
   const byId = new Map()
+  const registerAuthor = person => {
+    if (!person?.id) return
+    byId.set(person.id, {
+      ...person,
+      full_name: person.full_name || buildFullName(person),
+      role: person.role || 'client',
+      // The shared playlist is unauthenticated and the auth-protected
+      // /api/pictures/thumbnails/persons/<id>.png endpoint will 401.
+      // Force initials-fallback avatars instead.
+      has_avatar: false
+    })
+  }
   comments.value.forEach(comment => {
-    if (comment.person?.id) {
-      byId.set(comment.person.id, {
-        ...comment.person,
-        full_name: comment.person.full_name || buildFullName(comment.person),
-        role: comment.person.role || 'client',
-        // The shared playlist is unauthenticated and the auth-protected
-        // /api/pictures/thumbnails/persons/<id>.png endpoint will 401.
-        // Force initials-fallback avatars instead.
-        has_avatar: false
-      })
-    }
+    registerAuthor(comment.person)
+    ;(comment.replies || []).forEach(reply => registerAuthor(reply.person))
   })
   if (byId.size > 0) {
     store.commit(LOAD_PEOPLE_END, {
