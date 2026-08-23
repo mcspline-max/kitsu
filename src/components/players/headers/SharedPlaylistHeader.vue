@@ -1,14 +1,12 @@
 <template>
   <header class="shared-header flexrow">
-    <a
-      class="kitsu-logo-link"
-      href="https://www.cg-wire.com/kitsu"
-      target="_blank"
-      rel="noopener noreferrer"
-      :title="$t('share.kitsu_homepage')"
-    >
-      <img class="kitsu-logo" src="@/assets/kitsu.png" alt="Kitsu" />
-    </a>
+    <img
+      class="kitsu-logo"
+      :src="organisationLogoUrl"
+      :alt="organisationName"
+      v-if="organisationLogoUrl"
+    />
+    <img class="kitsu-logo" src="@/assets/kitsu.png" alt="Kitsu" v-else />
     <span class="project-name uppercase" v-if="projectName">
       {{ projectName }}
     </span>
@@ -89,6 +87,8 @@ const props = defineProps({
   entityCount: { type: Number, default: 0 },
   guestDisplayName: { type: String, default: '' },
   guestId: { type: String, default: '' },
+  organisationLogoUrl: { type: String, default: '' },
+  organisationName: { type: String, default: '' },
   playingEntityIndex: { type: Number, default: 0 },
   playlistName: { type: String, default: '' },
   projectName: { type: String, default: '' }
@@ -164,17 +164,6 @@ const revisionOptions = computed(() =>
   .kitsu-logo {
     height: 26px;
     width: auto;
-  }
-
-  .kitsu-logo-link {
-    align-items: center;
-    display: inline-flex;
-    line-height: 0;
-    transition: opacity 0.2s ease;
-
-    &:hover {
-      opacity: 0.75;
-    }
   }
 
   .logout-button {

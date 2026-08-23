@@ -8,6 +8,8 @@
       :entity-count="entityList.length"
       :guest-display-name="guestDisplayName"
       :guest-id="guestId"
+      :organisation-logo-url="organisationLogoUrl"
+      :organisation-name="organisationName"
       :playing-entity-index="playingEntityIndex"
       :playlist-name="playlistName"
       :project-name="projectName"
@@ -316,6 +318,8 @@ const props = defineProps({
   entities: { type: Array, default: () => [] },
   guestId: { type: String, default: '' },
   loading: { type: Boolean, default: false },
+  organisationHasAvatar: { type: Boolean, default: false },
+  organisationName: { type: String, default: '' },
   playlist: { type: Object, default: () => ({}) },
   token: { type: String, default: '' }
 })
@@ -384,6 +388,12 @@ const projectName = computed(() => props.playlist?.project_name || '')
 
 const sharedApiPrefix = computed(() =>
   props.token ? `/api/shared/playlists/${props.token}` : ''
+)
+
+const organisationLogoUrl = computed(() =>
+  props.organisationHasAvatar && sharedApiPrefix.value
+    ? `${sharedApiPrefix.value}/organisation/logo`
+    : ''
 )
 
 const fps = computed(

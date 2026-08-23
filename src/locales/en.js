@@ -1709,7 +1709,11 @@ export default {
     logout: 'Leave review session',
     post_comment_error:
       'Could not post the comment. Please reload the page and try again.',
-    kitsu_homepage: 'About Kitsu'
+    kitsu_homepage: 'About Kitsu',
+    assets: 'Assets',
+    shots: 'Shots',
+    sequences: 'Sequences',
+    edit: 'Edit'
   },
 
   task_status: {

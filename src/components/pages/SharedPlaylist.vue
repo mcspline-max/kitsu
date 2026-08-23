@@ -28,6 +28,8 @@
         :token="token"
         :guest-id="guestId || ''"
         :can-comment="shareLink?.can_comment || false"
+        :organisation-name="organisation?.name || ''"
+        :organisation-has-avatar="organisation?.has_avatar || false"
         @logout="logoutGuest"
       />
     </div>
@@ -63,6 +65,7 @@ const loadingPlayer = ref(false)
 const error = ref(false)
 const shareLink = ref(null)
 const playlist = ref(null)
+const organisation = ref(null)
 const playlistEntities = ref([])
 const guestId = ref(null)
 const guestName = ref('')
@@ -73,10 +76,52 @@ const token = computed(() => route.params.token)
 const playlistName = computed(
   () => playlist.value?.name || t('share.review_session')
 )
+const projectName = computed(() => playlist.value?.project_name || '')
+const episodeName = computed(() => playlist.value?.episode_name || '')
+
+const playlistTypeLabel = computed(() => {
+  switch (playlist.value?.for_entity) {
+    case 'asset':
+      return t('share.assets')
+    case 'shot':
+      return t('share.shots')
+    case 'sequence':
+      return t('share.sequences')
+    case 'edit':
+      return playlistEntities.value?.[0]?.name || t('share.edit')
+    default:
+      return ''
+  }
+})
 
 const needsIdentity = computed(
   () => shareLink.value?.can_comment && !guestId.value
 )
+
+const organisationLogoUrl = computed(() =>
+  organisation.value?.has_avatar && token.value
+    ? `/api/shared/playlists/${token.value}/organisation/logo`
+    : ''
+)
+
+const pageTitle = computed(() =>
+  [projectName.value, episodeName.value, playlistTypeLabel.value]
+    .filter(Boolean)
+    .join(' | ')
+)
+
+let faviconLink = null
+let defaultFaviconHref = ''
+let defaultTitle = ''
+
+watch(organisationLogoUrl, href => {
+  if (!faviconLink) return
+  faviconLink.href = href || defaultFaviconHref
+})
+
+watch(pageTitle, title => {
+  document.title = title || defaultTitle
+})
 
 watch(guestName, () => {
   identityError.value = ''
@@ -125,7 +170,11 @@ const loadSharedPlaylist = async () => {
     const data = await store.dispatch('loadSharedPlaylist', token.value)
     playlist.value = data
     playlistEntities.value = data.shots || []
-    await store.dispatch('loadSharedPlaylistContext', token.value)
+    const context = await store.dispatch(
+      'loadSharedPlaylistContext',
+      token.value
+    )
+    organisation.value = context.organisation || null
     shareLink.value = { can_comment: true }
     await restoreStoredGuest()
   } catch {
@@ -162,11 +211,16 @@ const logoutGuest = () => {
 onMounted(() => {
   store.commit(TOGGLE_DARK_THEME, true)
   crisp.setChatVisibility(false)
+  faviconLink = document.querySelector('link[rel="icon"]')
+  defaultFaviconHref = faviconLink?.href || ''
+  defaultTitle = document.title
   loadSharedPlaylist()
 })
 
 onBeforeUnmount(() => {
   crisp.setChatVisibility(true)
+  if (faviconLink) faviconLink.href = defaultFaviconHref
+  document.title = defaultTitle
 })
 </script>
 
