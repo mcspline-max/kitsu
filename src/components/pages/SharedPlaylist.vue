@@ -15,6 +15,8 @@
       <shared-playlist-identity-card
         v-model:guest-name="guestName"
         :error-message="identityError"
+        :organisation-logo-url="organisationLogoUrl"
+        :organisation-name="organisation?.name || ''"
         :playlist-name="playlistName"
         @submit="submitIdentity"
       />

@@ -1,7 +1,13 @@
 <template>
   <div class="identity-card">
     <div class="identity-header">
-      <img class="kitsu-logo" src="@/assets/kitsu.png" alt="Kitsu" />
+      <img
+        class="kitsu-logo"
+        :src="organisationLogoUrl"
+        :alt="organisationName"
+        v-if="organisationLogoUrl"
+      />
+      <img class="kitsu-logo" src="@/assets/kitsu.png" alt="Kitsu" v-else />
       <h1 class="title">{{ playlistName }}</h1>
       <p class="description">
         {{ $t('share.identity_description') }}
@@ -34,6 +40,8 @@ import TextField from '@/components/widgets/TextField.vue'
 
 defineProps({
   errorMessage: { type: String, default: '' },
+  organisationLogoUrl: { type: String, default: '' },
+  organisationName: { type: String, default: '' },
   playlistName: { type: String, required: true }
 })
 
@@ -134,9 +142,14 @@ onMounted(() => nameField.value?.focus())
   margin-bottom: 2em;
 }
 
+// Capped on both axes rather than a fixed width: a studio logo is any
+// aspect ratio (most are wide), and a fixed width would render those a
+// few pixels tall. The square Kitsu fallback still lands at 56x56.
 .kitsu-logo {
   margin-bottom: 1.2em;
-  width: 56px;
+  max-height: 56px;
+  max-width: 180px;
+  width: auto;
 }
 
 .title {
