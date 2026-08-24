@@ -3,15 +3,44 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Kitsu - Collaboration Platform For Animation And VFX Studios</title>
+
+    <!--
+      Branding for link previews. Crawlers (Gmail, Slack, Teams…) don't run
+      JavaScript, so they only ever see this static file — the per-playlist
+      title set at runtime in SharedPlaylist.vue never reaches them. These
+      tags are therefore instance-wide: every link out of this Kitsu
+      previews the same way. Rebranding means editing the studio name in
+      the title and the og:/twitter: tags below.
+    -->
+    <title>SUFX — Review</title>
+    <meta
+      name="description"
+      content="Review shots, edits and assets, and leave feedback directly on the frames."
+    />
+
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="SUFX" />
+    <meta property="og:title" content="SUFX — Review" />
+    <meta
+      property="og:description"
+      content="Review shots, edits and assets, and leave feedback directly on the frames."
+    />
+
+    <meta name="twitter:card" content="summary" />
+    <meta name="twitter:title" content="SUFX — Review" />
+    <meta
+      name="twitter:description"
+      content="Review shots, edits and assets, and leave feedback directly on the frames."
+    />
+
     <link rel="preload" href="/api/config" as="fetch" crossorigin />
     <link rel="icon" href="/favicon.ico" />
   </head>
   <body>
     <noscript>
       <strong>
-        We're sorry but Kitsu doesn't work properly without JavaScript enabled.
-        Please enable it to continue.
+        We're sorry but this review player doesn't work properly without
+        JavaScript enabled. Please enable it to continue.
       </strong>
     </noscript>
     <div id="app"></div>
