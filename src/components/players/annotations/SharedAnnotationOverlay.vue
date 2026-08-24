@@ -54,19 +54,21 @@
         type="button"
         class="annotation-tool"
         :title="$t('playlists.actions.annotation_delete')"
-        :disabled="!annotation.hasChanges()"
-        @click="annotation.clearLocal"
+        :disabled="
+          !annotation.hasChanges() && !annotation.hasOwnSelection.value
+        "
+        @click="onTrashClicked"
       >
         <trash-2-icon :size="14" />
       </button>
       <button
         type="button"
         class="annotation-tool primary"
-        :title="$t('main.save')"
+        :title="$t('tasks.post')"
         :disabled="!annotation.hasChanges() || isSaving"
         @click="save"
       >
-        <save-icon :size="14" />
+        <send-icon :size="14" />
       </button>
     </div>
   </div>
@@ -79,19 +81,17 @@ import {
   CornerLeftDownIcon,
   PencilIcon,
   RectangleHorizontalIcon,
-  SaveIcon,
+  SendIcon,
   Trash2Icon
 } from 'lucide-vue-next'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { useStore } from 'vuex'
 
+import playlistsApi from '@/store/api/playlists'
 import { useSharedAnnotationCanvas } from '@/composables/players/sharedAnnotation'
 import {
   buildReadOnlyShape,
   findAnnotationAtTime
 } from '@/lib/players/annotation'
-
-const store = useStore()
 
 const props = defineProps({
   annotations: { type: Array, default: () => [] },
@@ -113,7 +113,11 @@ const props = defineProps({
   token: { type: String, default: '' }
 })
 
-const emit = defineEmits(['saved'])
+const emit = defineEmits([
+  'saved',
+  'annotation-comment-saved',
+  'save-requested'
+])
 
 const canvasId = `shared-annotation-canvas-${Math.random()
   .toString(36)
@@ -213,12 +217,13 @@ const render = async () => {
   const fabricCanvas = annotation.getCanvas()
   if (!fabricCanvas) return
   const token = ++renderToken
-  // Unsaved guest strokes must survive re-renders (resize, comments-panel
-  // toggle, frame stepping): capture the pending diff before the reset
-  // wipes it. This is an explicit-save UX, a silent wipe loses work.
-  const pendingAdditions = annotation.hasChanges()
-    ? annotation.getDiff().additions
-    : []
+  // Unsaved guest strokes/edits must survive re-renders (resize, comments-
+  // panel toggle, frame stepping): capture the pending diff before the
+  // reset wipes it. This is an explicit-save UX, a silent wipe loses work.
+  const pendingDiff = annotation.hasChanges()
+    ? annotation.getDiff()
+    : { additions: [], updates: [], deletions: [] }
+  const pendingAdditions = pendingDiff.additions
   fabricCanvas.clear()
   annotation.reset()
   if (props.isPlaying) {
@@ -239,13 +244,35 @@ const render = async () => {
     current?.width || props.movieDimensions?.width || fabricCanvas.width,
     current?.height || props.movieDimensions?.height || fabricCanvas.height
   )
-  const objects = current ? current.drawing?.objects || [] : []
+  // Server truth doesn't know about a delete that hasn't been saved yet —
+  // drop it here too, or it would flash back in on every re-render.
+  const pendingDeletedIds = new Set(
+    pendingDiff.deletions.find(d => d.time === currentTime.value)?.objects || []
+  )
+  const objects = current
+    ? (current.drawing?.objects || []).filter(o => !pendingDeletedIds.has(o.id))
+    : []
   const shapes = await Promise.all(
     objects.map(obj => buildReadOnlyShape(current, obj, fabricCanvas))
   )
   if (token !== renderToken) return
-  shapes.forEach(shape => {
-    if (shape) fabricCanvas.add(shape)
+  const canvasWidth = current?.width || props.movieDimensions?.width
+  const canvasHeight = current?.height || props.movieDimensions?.height
+  shapes.forEach((shape, index) => {
+    if (!shape) return
+    const obj = objects[index]
+    if (props.isEditable && obj.createdBy === props.guestId) {
+      shape.set('selectable', true)
+      shape.set('evented', true)
+      shape.set('hoverCursor', 'move')
+      annotation.registerOwnObject(
+        shape,
+        current.time,
+        obj.canvasWidth || canvasWidth,
+        obj.canvasHeight || canvasHeight
+      )
+    }
+    fabricCanvas.add(shape)
   })
   if (pendingAdditions.length) {
     // Repaint the unsaved strokes of the displayed frame; entries drawn
@@ -306,6 +333,14 @@ const refreshCanvasOffset = () => {
   nextTick(() => annotation.getCanvas()?.calcOffset())
 }
 
+// Annotations now live on comments: additions with no comment of this
+// guest's own at the current time have no comment to diff against yet —
+// creating one is the comment composer's job (see save-requested below),
+// so it also picks up whatever's already been typed there and both
+// buttons end up posting the exact same comment. Everything else
+// (further additions, moves, deletes on an already-saved drawing) diffs
+// directly against that existing comment here. The overlay only ever
+// edits the displayed frame, so the whole diff shares one time/comment.
 const save = async () => {
   if (
     isSaving.value ||
@@ -316,29 +351,95 @@ const save = async () => {
   ) {
     return
   }
+
+  const time = currentTime.value
+  const existingEntry = findAnnotationAtTime(
+    props.annotations,
+    time,
+    props.frameDuration,
+    props.isPicture
+  )
+  const ownCommentId = (existingEntry?.drawing?.objects || []).find(
+    o => o.createdBy === props.guestId && o.commentId
+  )?.commentId
+
+  if (!ownCommentId) {
+    emit('save-requested')
+    return
+  }
+
   isSaving.value = true
   try {
     const diff = annotation.getDiff()
-    const updated = await store.dispatch('saveSharedPlaylistAnnotations', {
-      shareToken: props.token,
-      data: {
+    const updatedComment = await playlistsApi.updateSharedCommentAnnotation(
+      props.token,
+      ownCommentId,
+      {
         guest_id: props.guestId,
-        preview_file_id: props.previewFileId,
         additions: diff.additions,
         updates: diff.updates,
         deletions: diff.deletions
       }
-    })
+    )
+    const updatedEntry = {
+      ...updatedComment.annotation,
+      commentId: ownCommentId
+    }
+    // currentAnnotations (the player's scrubber/overlay source) is
+    // derived from the comments list, not this component's own local
+    // state — without this, a moved/deleted stroke would flicker back
+    // to its pre-edit content on the next unrelated re-render.
+    emit('annotation-comment-saved', updatedComment)
+
+    const nextAnnotations = props.annotations.filter(a => a.time !== time)
+    const remainingObjects = updatedEntry.drawing?.objects || []
+    if (remainingObjects.length) {
+      nextAnnotations.push({
+        ...updatedEntry,
+        drawing: {
+          objects: remainingObjects.map(o => ({
+            ...o,
+            commentId: updatedEntry.commentId,
+            createdBy: o.createdBy || props.guestId
+          }))
+        }
+      })
+    }
+
     // Drop the local copies now that they are persisted: render() keeps
     // unsaved work across resets, so a stale diff would repaint the just
     // saved strokes as pending duplicates.
     annotation.clearLocal()
-    emit('saved', updated.annotations || [])
+    annotation.clearSavedDiff()
+    emit('saved', nextAnnotations)
   } catch (error) {
     // Keep the toolbar so the user can retry; surface the failure for logs.
     console.error('Failed to save shared playlist annotations', error)
   }
   isSaving.value = false
+}
+
+const onTrashClicked = () => {
+  if (annotation.hasOwnSelection.value) {
+    annotation.deleteOwnSelection()
+  } else {
+    annotation.clearLocal()
+  }
+}
+
+const onKeydown = event => {
+  if (!props.isEditable || !annotation.hasOwnSelection.value) return
+  if (event.key !== 'Delete' && event.key !== 'Backspace') return
+  const target = event.target
+  if (
+    target?.isContentEditable ||
+    target?.tagName === 'INPUT' ||
+    target?.tagName === 'TEXTAREA'
+  ) {
+    return
+  }
+  event.preventDefault()
+  annotation.deleteOwnSelection()
 }
 
 // Watchers
@@ -382,6 +483,7 @@ onMounted(() => {
   refreshLayout()
   window.addEventListener('resize', onViewportResize)
   window.visualViewport?.addEventListener('resize', onViewportResize)
+  window.addEventListener('keydown', onKeydown)
   const target = wrapper.value?.parentElement
   if (typeof ResizeObserver !== 'undefined' && target) {
     resizeObserver = new ResizeObserver(refreshLayout)
@@ -392,6 +494,7 @@ onMounted(() => {
 onBeforeUnmount(() => {
   window.removeEventListener('resize', onViewportResize)
   window.visualViewport?.removeEventListener('resize', onViewportResize)
+  window.removeEventListener('keydown', onKeydown)
   resizeObserver?.disconnect()
   resizeObserver = null
   annotation.dispose()
@@ -401,6 +504,12 @@ defineExpose({
   hasChanges: () => annotation.hasChanges(),
   getDiff: () => annotation.getDiff(),
   reset: () => annotation.reset(),
+  // Drops the "unsaved" bookkeeping for the current strokes without an
+  // API call — for when the comment composer already sent them as part
+  // of a text comment (see SharedCommentsPanel's submitComment). The
+  // strokes themselves stay on canvas; render()'s normal watch on
+  // currentAnnotations re-hydrates them as saved on the next tick.
+  clearLocal: () => annotation.clearLocal(),
   setDrawingMode: enabled => annotation.setDrawingMode(enabled),
   // The player binds Ctrl+Z to the same undo the toolbar button calls.
   undo: () => annotation.undo()

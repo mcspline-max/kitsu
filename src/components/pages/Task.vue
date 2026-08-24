@@ -1564,7 +1564,9 @@ export default {
           preview,
           additions,
           deletions,
-          updates
+          updates,
+          taskStatusId: this.task.task_status_id,
+          personId: this.user?.id
         })
         previewPlayer?.confirmAnnotationsSaved()
       } catch (err) {

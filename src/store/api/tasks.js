@@ -131,6 +131,9 @@ export default {
       links: comment.links,
       timecode: comment.timecode
     }
+    if (comment.annotation !== undefined) {
+      data.annotation = comment.annotation
+    }
     return client.pput(`/api/data/comments/${comment.id}`, data)
   },
 
@@ -238,11 +241,29 @@ export default {
     )
   },
 
-  updatePreviewAnnotation(preview, additions, updates, deletions) {
-    return client.pput(
-      `/api/actions/preview-files/${preview.id}/update-annotations`,
-      { additions, updates, deletions }
-    )
+  createAnnotationComment(
+    taskId,
+    taskStatusId,
+    previewFileId,
+    timecode,
+    annotation
+  ) {
+    return client.ppost(`/api/actions/tasks/${taskId}/comment`, {
+      task_status_id: taskStatusId,
+      comment: '',
+      checklist: [],
+      timecode,
+      preview_file_id: previewFileId,
+      annotation
+    })
+  },
+
+  updateCommentAnnotation(commentId, { additions, updates, deletions }) {
+    return client.pput(`/api/actions/comments/${commentId}/update-annotation`, {
+      additions,
+      updates,
+      deletions
+    })
   },
 
   getPreviewFile(previewId) {

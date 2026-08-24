@@ -1077,7 +1077,9 @@ const onAnnotationChanged = async ({
       preview,
       additions,
       deletions,
-      updates
+      updates,
+      taskStatusId: props.task?.task_status_id,
+      personId: store.getters.user?.id
     })
     previewPlayerRef.value?.confirmAnnotationsSaved()
   } catch {

@@ -123,6 +123,8 @@
               :preview-file-id="currentPreview?.id || ''"
               :token="token"
               @saved="onAnnotationsSaved"
+              @annotation-comment-saved="onAnnotationCommentSaved"
+              @save-requested="onOverlaySaveRequested"
               v-if="(isMovie || isPicture) && !loading && currentPreview"
             />
 
@@ -142,7 +144,6 @@
         <video-progress
           ref="videoProgressRef"
           class="video-progress pull-bottom"
-          :annotations="currentAnnotations"
           :comment-marks="commentMarks"
           :background-url="darkTimesliderUrl"
           :empty="!isMovie"
@@ -241,6 +242,7 @@
       </div>
 
       <shared-comments-panel
+        ref="commentsPanel"
         :token="token"
         :guest-id="guestId"
         :current-task-id="currentTaskId"
@@ -251,7 +253,10 @@
         :entity="currentEntity || {}"
         :highlight-comment-id="highlightedCommentId"
         :moved-comment="movedComment"
-        :annotation-marks="annotationMarks"
+        :new-comment="newAnnotationComment"
+        :get-pending-annotation-diff="getPendingAnnotationDiff"
+        :clear-pending-annotation-diff="clearPendingAnnotationDiff"
+        :is-drafting="isAnnotating"
         @status-changed="onStatusChanged"
         @time-code-clicked="onTimeCodeClicked"
         @comments-changed="onGuestCommentsChanged"
@@ -332,6 +337,7 @@ const { panzoomTransform, onPanzoomChanged, resetPanzoomTransform } =
   usePanzoomSync()
 
 const annotationOverlay = ref(null)
+const commentsPanel = ref(null)
 const container = ref(null)
 const videoContainer = ref(null)
 // Height available for the picture viewer: it must fill the same area the
@@ -369,8 +375,12 @@ const soundPlayer = ref(null)
 const videoProgressRef = ref(null)
 const volume = ref(100)
 // Fed by SharedCommentsPanel's own comments-changed emit — it owns the
-// fetch/post/edit flow, this player only needs the list for scrubber pins.
+// fetch/post/edit flow. Also the live source for currentAnnotations below,
+// so a moved/edited/deleted comment's drawing stays in sync with its dot
+// without a reload.
 const guestComments = ref([])
+// True once the panel has reported in at least once — see currentAnnotations.
+const guestCommentsLoaded = ref(false)
 
 // Tracks whether the very first entity has been auto-loaded after mount.
 // Plain `let` (not ref) — only used by the watchers below.
@@ -480,6 +490,9 @@ const commentMarks = computed(() => {
         authorName: person?.full_name || '',
         text: comment.text ? stringHelpers.shortenText(comment.text, 140) : '',
         timeLabel: formatTime(time, fps.value),
+        // Drawn as a square instead of a circle — see .comment-mark.
+        // is-annotation in VideoProgress.vue.
+        hasAnnotation: !!comment.annotation,
         // Only the guest's own comments can be dragged, same rule as
         // editing/deleting a comment elsewhere in this panel.
         editable: comment.person_id === props.guestId
@@ -503,6 +516,44 @@ const onCommentMarkMoved = ({ id, time }) => {
 
 const onGuestCommentsChanged = comments => {
   guestComments.value = comments || []
+  guestCommentsLoaded.value = true
+}
+
+// Same forwarded-prop reasoning as movedComment: SharedCommentsPanel owns
+// comments.value, so it's the one that upserts the comment behind a
+// freshly created or edited annotation into the visible feed — a fresh
+// object each time so the panel's watch fires even when the same comment
+// is saved twice in a row (e.g. two quick strokes).
+const newAnnotationComment = ref(null)
+const onAnnotationCommentSaved = comment => {
+  newAnnotationComment.value = { ...comment }
+}
+
+// Lets the comments panel fold whatever's been drawn but not saved yet
+// into the same comment its "Add comment" box posts — so typing text
+// before or after drawing lands on one comment either way, instead of
+// needing the overlay's own separate Save button. Read imperatively
+// (not a reactive prop) since the panel only needs it at submit time.
+const getPendingAnnotationDiff = () => {
+  const overlay = annotationOverlay.value
+  if (!overlay?.hasChanges()) return null
+  const diff = overlay.getDiff()
+  return diff.additions.length ? diff : null
+}
+
+// Called by the panel right after a submit that included the diff above:
+// those strokes are now a saved comment, so drop the overlay's "unsaved"
+// bookkeeping without a second API call (see SharedAnnotationOverlay's
+// exposed clearLocal).
+const clearPendingAnnotationDiff = () => {
+  annotationOverlay.value?.clearLocal()
+}
+
+// The overlay's own Save icon, clicked with no comment to diff against
+// yet (a brand new drawing) — hands off to the exact same submitComment()
+// the panel's Post button calls, so both post one comment either way.
+const onOverlaySaveRequested = () => {
+  commentsPanel.value?.submitComment()
 }
 
 const currentEntityDisplayName = computed(() => {
@@ -538,41 +589,59 @@ const currentPreview = computed(() => {
   return entity.preview_file_previews?.[currentPreviewIndex.value - 1]
 })
 
-// Legacy annotations store unrounded times, so the same frame can exist as
-// several entries; the players only ever match the first one, which hides
-// the others (and makes a newly drawn+saved annotation look lost when an
-// old entry sits on the same frame). Merge them onto the frame grid, exactly
-// like the studio PreviewPlayer, so old + new annotations all render.
+// Each annotation is one comment's own drawing now, so once the comments
+// panel has reported in, derive annotations straight from guestComments —
+// the same live list its scrubber dot (commentMarks) already comes from —
+// instead of the static snapshot the playlist loaded with. That's what
+// makes dragging a dot (which updates comment.timecode) move its drawing
+// too, and a delete remove it, with no page reload.
+//
+// Before the panel's first report (a brief window right after mount),
+// fall back to that static snapshot so there's no flash of "no
+// annotations" while it catches up.
+//
+// Legacy annotations can store unrounded times, so the same frame can
+// exist as several entries; merge them onto the frame grid either way, so
+// old + new annotations all render (mirrors the studio PreviewPlayer).
 const currentAnnotations = computed(() => {
-  const anns = (currentPreview.value?.annotations || []).filter(
-    a => a.time >= 0
-  )
+  if (!guestCommentsLoaded.value) {
+    const anns = (currentPreview.value?.annotations || []).filter(
+      a => a.time >= 0
+    )
+    return mergeAnnotationsByFrame(anns, fps.value).sort(
+      (a, b) => a.time - b.time
+    )
+  }
+
+  const previewId = currentPreview.value?.id
+  const anns = guestComments.value
+    .filter(comment => comment.object_id === currentTaskId.value)
+    .filter(comment => !isCommentBoundToOtherPreview(comment, previewId))
+    .map(comment => {
+      const annotation = comment.annotation
+      const objects = annotation?.drawing?.objects || []
+      if (!objects.length) return null
+      const time = comment.timecode ?? annotation.time
+      if (time == null || time < 0) return null
+      return {
+        time,
+        frame: annotation.frame,
+        width: annotation.width,
+        height: annotation.height,
+        drawing: {
+          objects: objects.map(o => ({
+            ...o,
+            commentId: comment.id,
+            createdBy: o.createdBy || comment.person_id
+          }))
+        }
+      }
+    })
+    .filter(Boolean)
   return mergeAnnotationsByFrame(anns, fps.value).sort(
     (a, b) => a.time - b.time
   )
 })
-
-// Surfaces each drawn frame in the comments panel too, the same way a
-// text comment shows there — a reviewer scanning the list for feedback
-// shouldn't have to separately scrub the whole clip for annotations.
-// createdBy is set per-stroke by the annotation tool itself
-// (composables/players/sharedAnnotation.js); take the first stroke's
-// author as the entry's, since one frame's objects are almost always
-// drawn in one pass by one person.
-const annotationMarks = computed(() =>
-  currentAnnotations.value.map(annotation => {
-    const authorId = annotation.drawing?.objects?.[0]?.createdBy
-    const person = authorId ? store.getters.personMap.get(authorId) : null
-    return {
-      id: `annotation-${annotation.time}`,
-      frame: Math.round(annotation.time / frameDuration.value),
-      color: person?.color || null,
-      initials: person?.initials || '',
-      authorName: person?.full_name || '',
-      timeLabel: formatTime(annotation.time, fps.value)
-    }
-  })
-)
 
 // Number of preview files attached to the current entity (main preview +
 // its alternate previews / sub-previews). Used to drive the sub-preview

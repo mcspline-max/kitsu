@@ -24,6 +24,7 @@
             :font-size="12"
             :person="comment.person"
             :is-link="!isCurrentUserClient"
+            :square="!!comment.annotation"
             v-if="comment.person?.id"
           />
           <people-name
@@ -129,16 +130,26 @@
               class="comment-text"
               v-if="comment.text"
             ></p>
-            <button
-              class="timecode-badge tag is-info is-light"
-              type="button"
-              :aria-label="`Seek to ${commentTimecode}`"
-              :title="`Seek to ${commentTimecode}`"
-              @click="onCommentTimecodeClicked"
-              v-if="commentTimecode"
+            <div
+              class="timecode-row"
+              v-if="commentTimecode || comment.annotation"
             >
-              {{ commentTimecode }}
-            </button>
+              <button
+                class="timecode-badge tag is-info is-light"
+                type="button"
+                :aria-label="`Seek to ${commentTimecode}`"
+                :title="`Seek to ${commentTimecode}`"
+                @click="onCommentTimecodeClicked"
+                v-if="commentTimecode"
+              >
+                {{ commentTimecode }}
+              </button>
+              <pencil-icon
+                class="annotation-inline-icon"
+                :size="12"
+                v-if="comment.annotation"
+              />
+            </div>
             <checklist
               class="checklist"
               :checklist="checklistItems"
@@ -612,6 +623,7 @@ import {
   DownloadIcon,
   LinkIcon,
   PaperclipIcon,
+  PencilIcon,
   ThumbsUpIcon
 } from 'lucide-vue-next'
 
@@ -836,6 +848,7 @@ const onCommentTimecodeClicked = event => {
 const isEmpty = computed(() => {
   return (
     props.comment.text.length === 0 &&
+    !props.comment.annotation &&
     (!props.comment.checklist || props.comment.checklist.length === 0) &&
     props.comment.attachment_files.length === 0 &&
     props.comment.previews.length === 0
@@ -1473,6 +1486,16 @@ article.comment {
   padding: 0;
 }
 
+// Wraps the timecode badge and (when the comment carries a drawing) the
+// pencil icon next to it — mirrors the same pairing in the compose box's
+// own timecode chip.
+.timecode-row {
+  align-items: center;
+  display: flex;
+  gap: 0.4em;
+  margin: 0.45em 0 0.15em;
+}
+
 .timecode-badge {
   align-items: center;
   border: 0;
@@ -1481,7 +1504,6 @@ article.comment {
   display: inline-flex;
   font-size: 0.8em;
   gap: 0.25em;
-  margin: 0.45em 0 0.15em;
   padding: 0.25em 0.55em;
   transition:
     filter 0.15s ease,
@@ -1492,6 +1514,11 @@ article.comment {
     filter: brightness(0.96);
     transform: translateY(-1px);
   }
+}
+
+.annotation-inline-icon {
+  color: $grey;
+  flex-shrink: 0;
 }
 
 .infos {

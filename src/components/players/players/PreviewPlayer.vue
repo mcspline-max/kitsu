@@ -151,7 +151,6 @@
             <video-progress
               ref="progress"
               class="video-progress pull-bottom"
-              :annotations="annotations"
               :comparison-annotations="comparisonAnnotations"
               :comment-marks="commentMarks"
               :frame-duration="frameDuration"
@@ -855,7 +854,10 @@ const commentMarks = computed(() => {
         initials: person?.initials || '',
         authorName: person?.full_name || '',
         text: comment.text ? stringHelpers.shortenText(comment.text, 140) : '',
-        timeLabel: formatTime(time, fps.value)
+        timeLabel: formatTime(time, fps.value),
+        // Drawn as a square instead of a circle — see .comment-mark.
+        // is-annotation in VideoProgress.vue.
+        hasAnnotation: !!comment.annotation
       }
     })
     .filter(Boolean)

@@ -747,7 +747,8 @@ export default {
       'taskMap',
       'taskStatusMap',
       'taskTypeMap',
-      'use12HourClock'
+      'use12HourClock',
+      'user'
     ]),
     ...mapGetters({
       isCurrentUserManager: 'isCurrentUserProductionManager',
@@ -1488,7 +1489,9 @@ export default {
           preview,
           additions,
           deletions,
-          updates
+          updates,
+          taskStatusId: this.taskMap.get(taskId)?.task_status_id,
+          personId: this.user?.id
         })
         playlistPlayer?.confirmAnnotationsSaved()
       } catch (err) {

@@ -350,10 +350,6 @@ const actions = {
     return data
   },
 
-  saveSharedPlaylistAnnotations(_, { shareToken, data }) {
-    return playlistsApi.saveSharedPlaylistAnnotations(shareToken, data)
-  },
-
   loadPlaylistShareLinks(_, playlistId) {
     return playlistsApi.getShareLinks(playlistId)
   },

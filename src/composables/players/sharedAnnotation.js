@@ -20,6 +20,7 @@ import {
   attachMousePressureSimulation,
   attachShapeDrawing,
   createAnnotationCanvas,
+  normalizeSerializedAnnotation,
   pushAddition,
   removeAddition,
   setObjectData
@@ -38,9 +39,19 @@ export const useSharedAnnotationCanvas = () => {
   const pencilWidth = ref(DEFAULT_PENCIL_WIDTH)
   const localStack = shallowRef([])
   const additionsRef = shallowRef([])
+  // Diffs against objects that already exist server-side (loaded via
+  // registerOwnObject, not drawn this session): moved/resized -> updates,
+  // deleted -> deletions. Kept separate from additionsRef/localStack, which
+  // track brand new, not-yet-saved strokes.
+  const updatesRef = shallowRef([])
+  const deletionsRef = shallowRef([])
+  const hasOwnSelection = ref(false)
 
   let fabricCanvas = null
   let onPathCreated = null
+  let onObjectModified = null
+  let onSelectionChanged = null
+  let onSelectionCleared = null
   let detachMousePressure = null
   let detachShapeDrawing = null
   let currentTime = 0
@@ -48,12 +59,105 @@ export const useSharedAnnotationCanvas = () => {
   let lastAnnotationW = 0
   let lastAnnotationH = 0
   let userId = null
+  // id -> { time }, for objects loaded from the server that this guest
+  // authored (see registerOwnObject) and may therefore move, resize or
+  // delete.
+  const ownObjects = new Map()
+
+  // Merge a serialized object into the entry at `time` within `list`,
+  // replacing any prior entry for the same object id. Mirrors pushAddition's
+  // one-entry-per-time shape but for already-serialized data (updates).
+  const upsertObjectAt = (list, time, object) => {
+    const existing = list.find(entry => entry.time === time)
+    if (existing) {
+      const others = existing.drawing.objects.filter(o => o.id !== object.id)
+      existing.drawing.objects = [...others, object]
+      return [...list]
+    }
+    return [...list, { time, drawing: { objects: [object] } }]
+  }
+
+  const pushUpdateForObject = target => {
+    const meta = ownObjects.get(target.id)
+    if (!meta) return
+    const raw = target.serialize ? target.serialize() : target.toJSON()
+    const normalized = normalizeSerializedAnnotation(target, raw)
+    normalized.id = target.id
+    updatesRef.value = upsertObjectAt(updatesRef.value, meta.time, normalized)
+  }
+
+  const refreshOwnSelectionFlag = () => {
+    if (!fabricCanvas) {
+      hasOwnSelection.value = false
+      return
+    }
+    hasOwnSelection.value = fabricCanvas
+      .getActiveObjects()
+      .some(o => ownObjects.has(o.id))
+  }
+
+  // Called by the overlay after building an existing (server-loaded)
+  // object as editable — marks it as this guest's own so object:modified
+  // and deleteOwnSelection know it's theirs to change, and stamps the
+  // reference frame onto it so a later move/resize normalizes correctly.
+  const registerOwnObject = (shape, time, canvasWidth, canvasHeight) => {
+    if (!shape?.id) return
+    ownObjects.set(shape.id, { time })
+    if (!shape.canvasWidth) shape.set('canvasWidth', canvasWidth)
+    if (!shape.canvasHeight) shape.set('canvasHeight', canvasHeight)
+  }
+
+  const deleteOwnSelection = () => {
+    if (!fabricCanvas) return
+    const active = fabricCanvas
+      .getActiveObjects()
+      .filter(o => ownObjects.has(o.id))
+    if (!active.length) return
+    fabricCanvas.discardActiveObject()
+    active.forEach(obj => {
+      const meta = ownObjects.get(obj.id)
+      fabricCanvas.remove(obj)
+      ownObjects.delete(obj.id)
+      // A pending (unsaved) move of an object we're now deleting is moot.
+      updatesRef.value = updatesRef.value
+        .map(entry => ({
+          ...entry,
+          drawing: {
+            objects: entry.drawing.objects.filter(o => o.id !== obj.id)
+          }
+        }))
+        .filter(entry => entry.drawing.objects.length > 0)
+      const existing = deletionsRef.value.find(d => d.time === meta.time)
+      if (existing) {
+        existing.objects = [...existing.objects, obj.id]
+        deletionsRef.value = [...deletionsRef.value]
+      } else {
+        deletionsRef.value = [
+          ...deletionsRef.value,
+          { time: meta.time, objects: [obj.id] }
+        ]
+      }
+    })
+    fabricCanvas.requestRenderAll()
+    refreshOwnSelectionFlag()
+  }
 
   const setup = (canvasEl, { width = 1, height = 1 } = {}) => {
     fabricCanvas = createAnnotationCanvas(canvasEl)
     fabricCanvas.setDimensions({ width, height })
     applyPencilColor(fabricCanvas, pencilColor.value)
     applyPencilWidth(fabricCanvas, pencilWidth.value)
+
+    onObjectModified = ({ target }) => {
+      if (!target?.id) return
+      pushUpdateForObject(target)
+    }
+    fabricCanvas.on('object:modified', onObjectModified)
+    onSelectionChanged = refreshOwnSelectionFlag
+    onSelectionCleared = refreshOwnSelectionFlag
+    fabricCanvas.on('selection:created', onSelectionChanged)
+    fabricCanvas.on('selection:updated', onSelectionChanged)
+    fabricCanvas.on('selection:cleared', onSelectionCleared)
 
     onPathCreated = ({ path }) => {
       if (!path) return
@@ -169,19 +273,33 @@ export const useSharedAnnotationCanvas = () => {
     fabricCanvas.requestRenderAll()
   }
 
-  const hasChanges = () => additionsRef.value.length > 0
+  const hasChanges = () =>
+    additionsRef.value.length > 0 ||
+    updatesRef.value.length > 0 ||
+    deletionsRef.value.length > 0
 
   const getDiff = () => ({
     additions: additionsRef.value.map(a => ({ ...a })),
-    updates: [],
-    deletions: []
+    updates: updatesRef.value.map(u => ({ ...u })),
+    deletions: deletionsRef.value.map(d => ({ ...d }))
   })
+
+  // Drop pending updates/deletions once they've been persisted. Unlike
+  // clearLocal (which also removes not-yet-saved strokes from the canvas),
+  // the edited/deleted objects here are already in their final on-canvas
+  // state — only the pending-diff bookkeeping needs clearing.
+  const clearSavedDiff = () => {
+    updatesRef.value = []
+    deletionsRef.value = []
+  }
 
   const reset = () => {
     if (!fabricCanvas) return
     fabricCanvas.clear()
     localStack.value = []
     additionsRef.value = []
+    ownObjects.clear()
+    hasOwnSelection.value = false
   }
 
   // Re-adopt unsaved additions captured before a reset (resize, frame
@@ -196,6 +314,16 @@ export const useSharedAnnotationCanvas = () => {
     if (fabricCanvas && onPathCreated) {
       fabricCanvas.off('path:created', onPathCreated)
     }
+    if (fabricCanvas && onObjectModified) {
+      fabricCanvas.off('object:modified', onObjectModified)
+    }
+    if (fabricCanvas && onSelectionChanged) {
+      fabricCanvas.off('selection:created', onSelectionChanged)
+      fabricCanvas.off('selection:updated', onSelectionChanged)
+    }
+    if (fabricCanvas && onSelectionCleared) {
+      fabricCanvas.off('selection:cleared', onSelectionCleared)
+    }
     detachMousePressure?.()
     detachMousePressure = null
     detachShapeDrawing?.()
@@ -203,6 +331,10 @@ export const useSharedAnnotationCanvas = () => {
     fabricCanvas?.dispose()
     fabricCanvas = null
     onPathCreated = null
+    onObjectModified = null
+    onSelectionChanged = null
+    onSelectionCleared = null
+    ownObjects.clear()
   }
 
   const getCanvas = () => fabricCanvas
@@ -211,15 +343,19 @@ export const useSharedAnnotationCanvas = () => {
     PENCIL_WIDTHS,
     additions: additionsRef,
     clearLocal,
+    clearSavedDiff,
     currentTool,
+    deleteOwnSelection,
     dispose,
     getDiff,
     getCanvas,
     hasChanges,
+    hasOwnSelection,
     isDrawing,
     localStack,
     pencilColor,
     pencilWidth,
+    registerOwnObject,
     reset,
     restoreUnsaved,
     setAnnotationDimensions,

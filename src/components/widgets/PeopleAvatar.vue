@@ -1,7 +1,7 @@
 <template>
   <router-link
     class="avatar has-text-centered"
-    :class="{ bot: person.is_bot }"
+    :class="{ bot: person.is_bot, square }"
     :style="style"
     :title="person.full_name"
     :to="{
@@ -23,7 +23,7 @@
 
   <span
     class="avatar has-text-centered"
-    :class="{ bot: person.is_bot }"
+    :class="{ bot: person.is_bot, square }"
     :title="person.full_name"
     :style="style"
     v-else-if="person"
@@ -64,6 +64,13 @@ const props = defineProps({
   isLazy: {
     type: Boolean,
     default: true
+  },
+  // Rounded-square instead of a circle — used to flag an avatar as
+  // belonging to a comment that carries a drawing (see Comment.vue),
+  // matching the same square-dot treatment on the scrubber timeline.
+  square: {
+    type: Boolean,
+    default: false
   }
 })
 
@@ -98,6 +105,13 @@ const style = computed(() => {
     max-height: 100%;
     height: 100%;
     width: 100%;
+  }
+
+  // Overrides the global .avatar { border-radius: 50% } (App.vue) — the
+  // scoped attribute selector this compiles to outweighs it.
+  &.square,
+  &.square img {
+    border-radius: 6px;
   }
 }
 

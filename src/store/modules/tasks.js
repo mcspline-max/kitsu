@@ -752,12 +752,69 @@ const actions = {
     })
   },
 
+  // Annotations are stored per-comment now (see the backend refactor):
+  // each distinct timecode among the additions/updates/deletions maps to
+  // either a comment this person already owns at that time (found by
+  // scanning the preview's own last-known annotations for an object this
+  // person authored) or, if none exists yet, a fresh annotation-only
+  // comment (empty text) created from the first addition at that time.
+  // Pure updates/deletions with no resolvable owner (e.g. a stale local
+  // diff after a reload wiped the in-memory annotations) are dropped
+  // rather than silently attributed to someone else's comment.
   updatePreviewAnnotation(
     { commit },
-    { taskId, preview, additions, deletions, updates }
+    { taskId, preview, additions, deletions, updates, taskStatusId, personId }
   ) {
-    return tasksApi
-      .updatePreviewAnnotation(preview, additions, updates, deletions)
+    additions = additions || []
+    updates = updates || []
+    deletions = deletions || []
+    const previewId = preview.id
+    const existingAnnotations = preview.annotations || []
+    const findExistingCommentId = time => {
+      const entry = existingAnnotations.find(a => a.time === time)
+      const ownObject = (entry?.drawing?.objects || []).find(
+        o => o.createdBy === personId && o.commentId
+      )
+      return ownObject?.commentId || null
+    }
+    const times = new Set([
+      ...additions.map(a => a.time),
+      ...updates.map(u => u.time),
+      ...deletions.map(d => d.time)
+    ])
+    const ops = Array.from(times).map(time => {
+      const additionsForTime = additions.filter(a => a.time === time)
+      const updatesForTime = updates.filter(u => u.time === time)
+      const deletionsForTime = deletions.filter(d => d.time === time)
+      const commentId = findExistingCommentId(time)
+      if (commentId) {
+        return tasksApi
+          .updateCommentAnnotation(commentId, {
+            additions: additionsForTime,
+            updates: updatesForTime,
+            deletions: deletionsForTime
+          })
+          .then(comment => {
+            commit(NEW_TASK_COMMENT_END, { comment, taskId })
+            return comment
+          })
+      }
+      if (additionsForTime.length === 0) return Promise.resolve()
+      return tasksApi
+        .createAnnotationComment(
+          taskId,
+          taskStatusId,
+          previewId,
+          time,
+          additionsForTime[0]
+        )
+        .then(comment => {
+          commit(NEW_TASK_COMMENT_END, { comment, taskId })
+          return comment
+        })
+    })
+    return Promise.all(ops)
+      .then(() => tasksApi.getPreviewFile(previewId))
       .then(updatedPreview => {
         commit(UPDATE_PREVIEW_ANNOTATION, {
           taskId,

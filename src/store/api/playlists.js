@@ -161,8 +161,11 @@ export default {
     )
   },
 
-  saveSharedPlaylistAnnotations(shareToken, data) {
-    return client.pput(`/api/shared/playlists/${shareToken}/annotations`, data)
+  updateSharedCommentAnnotation(shareToken, commentId, data) {
+    return client.pput(
+      `/api/shared/playlists/${shareToken}/comments/${commentId}/annotation`,
+      data
+    )
   },
 
   loadSharedPlaylistComments(shareToken) {

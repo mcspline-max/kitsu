@@ -1,28 +1,43 @@
 <template>
   <aside class="shared-comments-panel flexcolumn">
     <form class="post-form" @submit.prevent="submitComment" v-if="canPost">
-      <div class="comment-input-wrapper">
-        <div class="timecode-chip" v-if="outgoingTimecode !== null">
-          <span
-            class="timecode-chip-dot"
-            :style="{ background: guestColor }"
-          ></span>
-          <span class="timecode-chip-label">{{ timecodeLabel }}</span>
-          <button
-            type="button"
-            class="timecode-chip-remove"
-            :title="$t('comments.remove_timecode')"
-            @click="dismissTimecode"
-          >
-            <x-icon :size="11" />
-          </button>
+      <div class="comment-input-wrapper" :class="{ 'is-drafting': isDrafting }">
+        <div class="timecode-row" v-if="outgoingTimecode !== null">
+          <div class="timecode-chip">
+            <span
+              class="timecode-chip-dot"
+              :style="{ background: guestColor }"
+            ></span>
+            <span class="timecode-chip-label">{{ timecodeLabel }}</span>
+            <button
+              type="button"
+              class="timecode-chip-remove"
+              :title="$t('comments.remove_timecode')"
+              @click="dismissTimecode"
+            >
+              <x-icon :size="11" />
+            </button>
+          </div>
+          <pencil-icon
+            class="drafting-pencil-icon"
+            :size="13"
+            :title="$t('share.drawing_in_progress')"
+            v-if="isDrafting"
+          />
         </div>
         <textarea
           ref="textareaRef"
           class="comment-input"
-          :class="{ 'has-timecode-chip': outgoingTimecode !== null }"
+          :class="{
+            'has-timecode-chip': outgoingTimecode !== null,
+            'has-drafting-pencil': outgoingTimecode !== null && isDrafting
+          }"
           rows="4"
-          :placeholder="$t('share.comment_placeholder')"
+          :placeholder="
+            isDrafting
+              ? $t('share.annotation_comment_placeholder')
+              : $t('share.comment_placeholder')
+          "
           :disabled="submitting"
           @keydown="onTextareaKeydown"
           v-autosize
@@ -131,39 +146,10 @@
       <div class="loading-state" v-if="loading">
         <spinner />
       </div>
-      <p
-        class="empty-state"
-        v-else-if="taskComments.length === 0 && annotationMarks.length === 0"
-      >
+      <p class="empty-state" v-else-if="taskComments.length === 0">
         {{ $t('share.no_comments_yet') }}
       </p>
       <template v-else>
-        <button
-          type="button"
-          class="annotation-entry"
-          :key="mark.id"
-          @click="onAnnotationEntryClicked(mark)"
-          v-for="mark in annotationMarks"
-        >
-          <span
-            class="annotation-entry-dot"
-            :style="{ background: mark.color || undefined }"
-          >
-            {{ mark.initials }}
-          </span>
-          <span class="annotation-entry-body">
-            <span class="annotation-entry-header">
-              <span class="annotation-entry-author" v-if="mark.authorName">
-                {{ mark.authorName }}
-              </span>
-              <span class="annotation-entry-label">
-                {{ $t('share.drew_an_annotation') }}
-              </span>
-            </span>
-            <span class="annotation-entry-time">{{ mark.timeLabel }}</span>
-          </span>
-          <pencil-icon class="annotation-entry-icon" :size="14" />
-        </button>
         <task-comment
           class="comment-wrapper"
           :class="{ 'is-glowing': glowingCommentId === comment.id }"
@@ -292,7 +278,17 @@ const props = defineProps({
   entity: { type: Object, default: () => ({}) },
   highlightCommentId: { type: String, default: null },
   movedComment: { type: Object, default: null },
-  annotationMarks: { type: Array, default: () => [] }
+  newComment: { type: Object, default: null },
+  // Imperative getters into the sibling annotation overlay (player-owned,
+  // see SharedPlaylistPlayer.vue) — read at submit time, not reactive
+  // props, since the panel only needs the drawing's state at the moment
+  // it posts, not on every stroke.
+  getPendingAnnotationDiff: { type: Function, default: null },
+  clearPendingAnnotationDiff: { type: Function, default: null },
+  // True while the guest has the pencil tool open — shows a draft comment
+  // placeholder at the top of the list right away, so it's visible there's
+  // a comment forming even before anything's been drawn or typed.
+  isDrafting: { type: Boolean, default: false }
 })
 
 const emit = defineEmits([
@@ -520,6 +516,11 @@ const submitComment = async () => {
   if (!canSubmit.value) return
   postError.value = ''
   submitting.value = true
+  // Whatever's been drawn but not saved yet (see SharedAnnotationOverlay)
+  // rides along on this same comment, so typing before or after drawing
+  // both land on one comment instead of needing its separate Save button.
+  const pendingDiff = props.getPendingAnnotationDiff?.()
+  const pendingAnnotation = pendingDiff?.additions?.[0] || null
   try {
     let comment = await playlistsApi.postSharedPlaylistComment(props.token, {
       guest_id: props.guestId,
@@ -527,11 +528,15 @@ const submitComment = async () => {
       task_status_id: selectedStatusId.value,
       text: commentText.value,
       checklist: checklistItems.value.filter(item => item.text.trim()),
-      timecode: outgoingTimecode.value,
-      preview_file_id: props.currentPreviewId
+      timecode: pendingAnnotation
+        ? pendingAnnotation.time
+        : outgoingTimecode.value,
+      preview_file_id: props.currentPreviewId,
+      annotation: pendingAnnotation
     })
     const withAttachments = await uploadAttachments(comment.id)
     if (withAttachments) comment = withAttachments
+    if (pendingAnnotation) props.clearPendingAnnotationDiff?.()
     comments.value = [comment, ...comments.value]
     // Make sure the freshly created guest lands in personMap so the
     // Comment widget treats them as a client author and renders the
@@ -709,6 +714,29 @@ watch(
   }
 )
 
+// A comment created or edited from the player's drawing overlay (see
+// SharedAnnotationOverlay.vue's annotation-comment-saved emit): a new one
+// gets the same "prepend + resolve author" treatment submitComment()
+// gives a guest's own posted comment; an edit (a stroke moved/deleted
+// within an already-visible annotation) updates it in place — currentAnnotations
+// derives from this same comments list, so without this the drawing would
+// flicker back to its pre-edit content on the next unrelated re-render.
+watch(
+  () => props.newComment,
+  comment => {
+    if (!comment) return
+    const index = comments.value.findIndex(c => c.id === comment.id)
+    if (index >= 0) {
+      const next = [...comments.value]
+      next[index] = { ...next[index], ...comment }
+      comments.value = next
+    } else {
+      comments.value = [comment, ...comments.value]
+    }
+    populatePersonMap()
+  }
+)
+
 const onChecklistUpdated = async updated => {
   const existing = comments.value.find(c => c.id === updated.id)
   if (!existing) return
@@ -844,10 +872,6 @@ const onCommentTimeCodeClicked = data => {
   emit('time-code-clicked', data)
 }
 
-const onAnnotationEntryClicked = mark => {
-  emit('time-code-clicked', { frame: mark.frame })
-}
-
 const onChecklistTimeCodeClicked = ({ frame, revision }) => {
   emit('time-code-clicked', {
     versionRevision: revision,
@@ -906,6 +930,14 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => clearTimeout(glowTimeout))
+
+defineExpose({
+  // Called by SharedPlaylistPlayer.vue when the annotation overlay's own
+  // save icon is clicked with nothing saved yet for the current drawing —
+  // same submit as this panel's own Post button, so both post one comment
+  // combining whatever's been typed and drawn.
+  submitComment
+})
 </script>
 
 <style lang="scss" scoped>
@@ -962,6 +994,16 @@ onBeforeUnmount(() => clearTimeout(glowTimeout))
   position: relative;
 }
 
+.timecode-row {
+  align-items: center;
+  display: flex;
+  gap: 0.4em;
+  left: 0.6em;
+  position: absolute;
+  top: 0.6em;
+  z-index: 2;
+}
+
 .timecode-chip {
   align-items: center;
   background: var(--accent-soft);
@@ -969,11 +1011,7 @@ onBeforeUnmount(() => clearTimeout(glowTimeout))
   border-radius: 999px;
   display: inline-flex;
   gap: 0.6em;
-  left: 0.6em;
   padding: 0.15em 0.3em 0.15em 0.6em;
-  position: absolute;
-  top: 0.6em;
-  z-index: 2;
 }
 
 .timecode-chip-dot {
@@ -988,6 +1026,13 @@ onBeforeUnmount(() => clearTimeout(glowTimeout))
   font-size: 0.78em;
   font-weight: 600;
   white-space: nowrap;
+}
+
+// Sits next to the chip, not inside it — the chip is still just "when in
+// this video", the pencil is the separate "and it has a drawing" signal.
+.drafting-pencil-icon {
+  color: var(--accent);
+  flex-shrink: 0;
 }
 
 .timecode-chip-remove {
@@ -1018,6 +1063,12 @@ textarea.has-timecode-chip {
   text-indent: 9em;
 }
 
+// The pencil sitting next to the chip pushes the reserved width out a bit
+// further — same reasoning as the constant above.
+textarea.has-drafting-pencil {
+  text-indent: 10.2em;
+}
+
 .comment-input {
   background: var(--surface-inset);
   border: 1px solid var(--border-soft);
@@ -1046,6 +1097,13 @@ textarea.has-timecode-chip {
   }
 }
 
+// The pencil tool is open — this is where the comment it's attached to
+// forms, so keep it visibly "active" until Post/Save.
+.comment-input-wrapper.is-drafting .comment-input {
+  animation: draftGlowPulse 2.2s ease-in-out infinite;
+  border-color: rgba(124, 92, 255, 0.6);
+}
+
 .comment-wrapper {
   animation: commentFadeIn 0.45s ease both;
   margin-bottom: 0;
@@ -1053,83 +1111,6 @@ textarea.has-timecode-chip {
   &.is-glowing :deep(article.comment) {
     animation: commentGlow 2s ease-out;
   }
-}
-
-.annotation-entry {
-  align-items: center;
-  animation: commentFadeIn 0.45s ease both;
-  background: var(--surface-raised);
-  border: 1px solid var(--border-soft);
-  border-radius: 14px;
-  color: inherit;
-  cursor: pointer;
-  display: flex;
-  font: inherit;
-  gap: 0.6em;
-  margin: 0.6em 0;
-  padding: 0.6em 0.8em;
-  text-align: left;
-  transition: border-color 0.2s ease;
-  width: 100%;
-
-  &:hover {
-    border-color: var(--border-strong);
-  }
-}
-
-.annotation-entry-dot {
-  align-items: center;
-  background: var(--accent);
-  border-radius: 50%;
-  color: white;
-  display: flex;
-  flex-shrink: 0;
-  font-size: 0.7em;
-  font-weight: 700;
-  height: 26px;
-  justify-content: center;
-  width: 26px;
-}
-
-.annotation-entry-body {
-  display: flex;
-  flex: 1;
-  flex-direction: column;
-  gap: 0.1em;
-  min-width: 0;
-}
-
-.annotation-entry-header {
-  align-items: baseline;
-  display: flex;
-  gap: 0.35em;
-  overflow: hidden;
-}
-
-.annotation-entry-author {
-  color: var(--text);
-  flex-shrink: 0;
-  font-size: 0.85em;
-  font-weight: 600;
-}
-
-.annotation-entry-label {
-  color: var(--text-muted);
-  font-size: 0.85em;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.annotation-entry-time {
-  color: var(--text-muted);
-  font-size: 0.75em;
-  font-variant-numeric: tabular-nums;
-}
-
-.annotation-entry-icon {
-  color: var(--text-muted);
-  flex-shrink: 0;
 }
 
 .comments-list {
@@ -1803,6 +1784,20 @@ textarea.has-timecode-chip {
   }
 }
 
+@keyframes draftGlowPulse {
+  0%,
+  100% {
+    box-shadow:
+      0 0 0 2px rgba(124, 92, 255, 0.25),
+      0 0 16px 2px rgba(124, 92, 255, 0.2);
+  }
+  50% {
+    box-shadow:
+      0 0 0 3px rgba(124, 92, 255, 0.5),
+      0 0 26px 6px rgba(124, 92, 255, 0.4);
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .comment-wrapper {
     animation: none;
@@ -1811,6 +1806,11 @@ textarea.has-timecode-chip {
       animation: none;
       box-shadow: 0 0 0 2px rgba(124, 92, 255, 0.55);
     }
+  }
+
+  .comment-input-wrapper.is-drafting .comment-input {
+    animation: none;
+    box-shadow: 0 0 0 2px rgba(124, 92, 255, 0.45);
   }
 }
 

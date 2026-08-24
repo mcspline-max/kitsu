@@ -67,23 +67,6 @@
       ></progress>
 
       <span
-        :key="`annotation-${index}`"
-        class="annotation-mark"
-        :style="{
-          left: getAnnotationPosition(annotation) + 'px',
-          width: Math.max(effectiveFrameSize - 1, 5) + 'px'
-        }"
-        @mouseenter="isFrameNumberVisible = true"
-        @mouseleave="isFrameNumberVisible = false"
-        @mousedown="startProgressDrag"
-        @touchstart="isFrameNumberVisible = true"
-        @touchend="isFrameNumberVisible = false"
-        @touchcancel="isFrameNumberVisible = false"
-        @click="emitProgressEvent($event, annotation)"
-        v-for="(annotation, index) in annotations"
-      >
-      </span>
-      <span
         :key="`annotation-comparison-${index}`"
         class="annotation-mark comparison-mark"
         :style="{
@@ -105,7 +88,8 @@
         class="comment-mark"
         :class="{
           draggable: mark.editable,
-          dragging: draggingMarkId === mark.id
+          dragging: draggingMarkId === mark.id,
+          'is-annotation': mark.hasAnnotation
         }"
         :style="{
           left: getMarkDisplayPosition(mark) + 'px',
@@ -169,10 +153,6 @@ import {
 } from '@/lib/players/tiles'
 
 const props = defineProps({
-  annotations: {
-    default: () => [],
-    type: Array
-  },
   backgroundUrl: {
     default: null,
     type: String
@@ -814,6 +794,12 @@ defineExpose({ updateProgressBar })
     transform: translate(-50%, -50%) scale(1.3);
     transition: none;
     z-index: 12;
+  }
+
+  // A comment carrying a drawing: same dot (drag, initials, tooltip),
+  // shaped as a rounded square so it reads apart from a plain comment.
+  &.is-annotation {
+    border-radius: 4px;
   }
 }
 
