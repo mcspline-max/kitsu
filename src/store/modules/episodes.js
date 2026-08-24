@@ -579,7 +579,7 @@ const mutations = {
 
   [SET_CURRENT_EPISODE](state, episodeId) {
     if (episodeId && episodeId !== state.currentEpisode?.id) {
-      if (['all', 'main'].includes(episodeId)) {
+      if (['all', 'main', 'edits'].includes(episodeId)) {
         state.currentEpisode = { id: episodeId }
       } else {
         state.currentEpisode = cache.episodeMap.get(episodeId)

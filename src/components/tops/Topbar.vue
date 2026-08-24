@@ -457,9 +457,14 @@ export default {
       }
       if (this.assetSections.includes(section)) {
         const episodeList = this.getBaseEpisodeOptionGroups('main.all_assets')
-        return [{ name: '', episodeList }].concat(this.episodeOptionGroups)
-      } else if (['playlists'].includes(section)) {
-        const episodeList = this.getBaseEpisodeOptionGroups('main.all_assets')
+        // assetSections covers 'assets'/'assetTypes' too — the edits
+        // bucket only makes sense on the Playlists page itself.
+        if (section === 'playlists' && this.isTVShow) {
+          episodeList.push({
+            label: this.$t('main.all_episodes'),
+            value: 'edits'
+          })
+        }
         return [{ name: '', episodeList }].concat(this.episodeOptionGroups)
       } else if (['edits'].includes(section)) {
         return [
@@ -832,7 +837,12 @@ export default {
                   ? routeEpisodeId
                   : 'all'
             } else if (
-              ['playlists', 'schedule'].includes(this.currentProjectSection) &&
+              this.currentProjectSection === 'playlists' &&
+              ['all', 'main', 'edits'].includes(routeEpisodeId)
+            ) {
+              this.currentEpisodeId = routeEpisodeId
+            } else if (
+              this.currentProjectSection === 'schedule' &&
               ['all', 'main'].includes(routeEpisodeId)
             ) {
               this.currentEpisodeId = routeEpisodeId
@@ -940,7 +950,12 @@ export default {
         this.currentEpisodeId = episodeId
         this.pushContextRoute(section, pluginId)
       } else {
-        this.currentEpisodeId = episodeId
+        // A blank episodeId here (route param not resolved yet, or a
+        // pseudo-episode that ended up invalid) left the switcher showing
+        // nothing and the list unloaded — fall back to "All Assets" on
+        // asset-like sections (assets/playlists), same as the pseudo-
+        // episode lookup elsewhere in this file already does.
+        this.currentEpisodeId = !episodeId && isAssetSection ? 'all' : episodeId
       }
     },
 

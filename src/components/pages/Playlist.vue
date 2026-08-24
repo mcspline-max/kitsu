@@ -984,7 +984,13 @@ export default {
     },
 
     async loadEditsData() {
+      // Same rule as loadAssetsData above: on a TV show this list is
+      // episode-scoped, so it has to be refetched on every episode
+      // change. Comparing the cached entries instead can't be trusted —
+      // an episode with no edits of its own leaves the previous
+      // episode's entries in place and they still look current.
       if (
+        this.isTVShow ||
         this.displayedEdits.length === 0 ||
         this.displayedEdits[0].project_id !== this.currentProduction.id
       ) {

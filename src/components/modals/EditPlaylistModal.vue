@@ -125,6 +125,11 @@ const forClientOptions = computed(() => [
 ])
 
 const forEntityOptions = computed(() => {
+  // The edits bucket only holds cross-episode edit playlists, so that is
+  // the only kind that can be created from it.
+  if (currentEpisode.value?.id === 'edits') {
+    return [{ label: t('edits.title'), value: 'edit' }]
+  }
   if (
     ['main', 'all'].includes(currentEpisode.value?.id) ||
     currentProduction.value?.production_type === 'assets'
@@ -151,6 +156,7 @@ const forEntityOptions = computed(() => {
 })
 
 const defaultForEntity = computed(() => {
+  if (currentEpisode.value?.id === 'edits') return 'edit'
   const productionType = currentProduction.value?.production_type
   const isOnlyAssets = productionType === 'assets'
   const isOnlyShots = productionType === 'shots'

@@ -339,7 +339,10 @@ const actions = {
         } else {
           return Promise.resolve([])
         }
-      } else if (['all'].includes(episode.id)) {
+      } else if (['all', 'edits'].includes(episode.id)) {
+        // 'edits' is the cross-episode playlists bucket — an edit
+        // playlist built while it's selected should offer every edit,
+        // same as 'all' does for assets.
         episode = null
       }
     }
