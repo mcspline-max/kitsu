@@ -142,6 +142,44 @@
       {{ postError }}
     </p>
 
+    <div
+      class="comments-toolbar flexrow"
+      v-if="!loading && taskComments.length > 0"
+    >
+      <div class="sort-menu" ref="sortMenuRef">
+        <button
+          type="button"
+          class="sort-button"
+          :title="$t('comments.sort_by')"
+          @click="toggleSortMenu"
+        >
+          <arrow-up-down-icon :size="13" />
+          <span>{{ activeSortLabel }}</span>
+        </button>
+        <div class="sort-menu-dropdown" v-if="sortMenuOpen">
+          <div
+            class="sort-menu-option"
+            :class="{ active: sortMode === option.value }"
+            role="button"
+            tabindex="0"
+            :key="option.value"
+            v-for="option in sortOptions"
+            @click="selectSortMode(option.value)"
+            @keydown.enter.prevent="selectSortMode(option.value)"
+            @keydown.space.prevent="selectSortMode(option.value)"
+          >
+            <check-icon
+              class="sort-menu-check"
+              :size="13"
+              v-if="sortMode === option.value"
+            />
+            <span class="sort-menu-check-spacer" v-else></span>
+            {{ option.label }}
+          </div>
+        </div>
+      </div>
+    </div>
+
     <div class="comments-list" ref="commentsList">
       <div class="loading-state" v-if="loading">
         <spinner />
@@ -225,12 +263,15 @@
 
 <script setup>
 import {
+  ArrowUpDownIcon,
+  CheckIcon,
   FilmIcon,
   ListIcon,
   PaperclipIcon,
   PencilIcon,
   XIcon
 } from 'lucide-vue-next'
+import { firstBy } from 'thenby'
 import {
   computed,
   nextTick,
@@ -318,6 +359,10 @@ const commentsList = ref(null)
 const glowingCommentId = ref(null)
 let glowTimeout = null
 
+const sortMode = ref('created_at')
+const sortMenuOpen = ref(false)
+const sortMenuRef = ref(null)
+
 const loading = ref(true)
 const submitting = ref(false)
 const isEditing = ref(false)
@@ -380,15 +425,49 @@ watch(
   }
 )
 
-const taskComments = computed(() =>
-  comments.value
+const sortOptions = computed(() => [
+  { value: 'created_at', label: t('comments.sort_created_at') },
+  { value: 'timecode', label: t('comments.sort_timecode') },
+  { value: 'person', label: t('comments.sort_person') }
+])
+
+const activeSortLabel = computed(
+  () =>
+    sortOptions.value.find(option => option.value === sortMode.value)?.label ||
+    ''
+)
+
+const newestFirst = (a, b) =>
+  (b.created_at || '').localeCompare(a.created_at || '')
+
+const taskComments = computed(() => {
+  const filtered = comments.value
     .filter(comment => comment.object_id === props.currentTaskId)
     .filter(
       comment => !isCommentBoundToOtherPreview(comment, props.currentPreviewId)
     )
     .map(normalizeComment)
-    .sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''))
-)
+
+  if (sortMode.value === 'timecode') {
+    // Untimed comments have no position in the video, so they sink to the
+    // end rather than sorting as if they were at frame 0.
+    return filtered.sort(
+      firstBy(comment =>
+        comment.timecode === null || comment.timecode === undefined
+          ? Infinity
+          : comment.timecode
+      ).thenBy(newestFirst)
+    )
+  }
+  if (sortMode.value === 'person') {
+    return filtered.sort(
+      firstBy(comment => buildFullName(comment.person).toLowerCase()).thenBy(
+        newestFirst
+      )
+    )
+  }
+  return filtered.sort(newestFirst)
+})
 
 // Functions — helpers
 
@@ -866,6 +945,23 @@ const removePendingAttachment = index => {
   pendingAttachments.value.splice(index, 1)
 }
 
+// Functions — sorting
+
+const toggleSortMenu = () => {
+  sortMenuOpen.value = !sortMenuOpen.value
+}
+
+const selectSortMode = mode => {
+  sortMode.value = mode
+  sortMenuOpen.value = false
+}
+
+const onSortMenuDocumentClick = event => {
+  if (!sortMenuRef.value?.contains(event.target)) {
+    sortMenuOpen.value = false
+  }
+}
+
 // Functions — time code
 
 const onCommentTimeCodeClicked = data => {
@@ -927,9 +1023,13 @@ watch(
 
 onMounted(() => {
   if (props.token) refresh()
+  document.addEventListener('click', onSortMenuDocumentClick)
 })
 
-onBeforeUnmount(() => clearTimeout(glowTimeout))
+onBeforeUnmount(() => {
+  clearTimeout(glowTimeout)
+  document.removeEventListener('click', onSortMenuDocumentClick)
+})
 
 defineExpose({
   // Called by SharedPlaylistPlayer.vue when the annotation overlay's own
@@ -1111,6 +1211,83 @@ textarea.has-drafting-pencil {
   &.is-glowing :deep(article.comment) {
     animation: commentGlow 2s ease-out;
   }
+}
+
+.comments-toolbar {
+  border-bottom: 1px solid var(--border-soft);
+  flex-shrink: 0;
+  justify-content: flex-end;
+  padding: 0.5em 0.8em;
+}
+
+.sort-menu {
+  position: relative;
+}
+
+.sort-button {
+  align-items: center;
+  background: transparent;
+  border: 1px solid var(--border-soft);
+  border-radius: 999px;
+  color: var(--text-muted);
+  cursor: pointer;
+  display: inline-flex;
+  font-size: 0.78em;
+  gap: 0.4em;
+  padding: 0.35em 0.8em;
+  transition:
+    background 0.2s ease,
+    border-color 0.2s ease,
+    color 0.2s ease;
+
+  &:hover {
+    background: rgba(255, 255, 255, 0.04);
+    border-color: var(--border-strong);
+    color: var(--text);
+  }
+}
+
+.sort-menu-dropdown {
+  background: var(--surface-raised);
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5);
+  overflow: hidden;
+  position: absolute;
+  right: 0;
+  top: calc(100% + 6px);
+  width: 170px;
+  z-index: 20;
+}
+
+.sort-menu-option {
+  align-items: center;
+  color: var(--text);
+  cursor: pointer;
+  display: flex;
+  font-size: 0.82em;
+  gap: 0.5em;
+  padding: 0.5em 0.7em;
+  transition: background 0.15s ease;
+
+  &:hover {
+    background: var(--accent-soft);
+  }
+
+  &.active {
+    color: var(--accent);
+  }
+}
+
+.sort-menu-check {
+  color: var(--accent);
+  flex-shrink: 0;
+}
+
+.sort-menu-check-spacer {
+  display: inline-block;
+  flex-shrink: 0;
+  width: 13px;
 }
 
 .comments-list {
